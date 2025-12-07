@@ -1,0 +1,7 @@
+vnstock
+fastapi
+uvicorn[standard]
+fastapi[standard]
+numpy
+pandas
+ta-lib
