@@ -59,8 +59,8 @@ def get_day_price(): # Fixed Typo 'pice' -> 'price'
 @router.get("/mock-price")
 def get_mock_price_endpoint():
     try:
-        records_json = get_mock_price()
-        return {"data": records_json}
+        records_json, divergences = get_mock_price()
+        return {"data": records_json, "divergences": divergences}
     except Exception as e:
         logger.error(f"System error in mock-price: {e}")
         raise HTTPException(

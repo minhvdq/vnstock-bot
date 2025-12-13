@@ -12,14 +12,23 @@ type StockData = {
   [key: string]: string | number | null | undefined;
 };
 
+type Divergence = {
+  prefixIndex: number;
+  suffixIndex: number;
+  type: string;
+}
+
 type ApiResponse = {
   data: StockData[];
+  divergences: Divergence[];
 };
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stockData, setStockData] = useState<StockData[] | null>(null);
+  const [divergences, setDivergences] = useState<Divergence[] | null>(null);
+  const [activeDivIndex, setActiveDivIndex] = useState<number | null>(null);
 
   const fetchMockPrice = async () => {
     setLoading(true);
@@ -39,12 +48,15 @@ export default function Home() {
       const json: ApiResponse = await res.json();
       console.log("Received data:", json);
       console.log("Data array:", json.data);
+      console.log("Divergences: ", json.divergences);
       
-      if (!json.data || !Array.isArray(json.data)) {
+      if (!json.data || !json.divergences || !Array.isArray(json.data)) {
         throw new Error("Invalid data format: expected array");
       }
 
       setStockData(json.data);
+      setDivergences(Array.isArray(json.divergences) ? json.divergences : []);
+      setActiveDivIndex(Array.isArray(json.divergences) && json.divergences.length > 0 ? 0 : null);
       
       if (json.data.length === 0) {
         console.warn("No data in response");
@@ -138,8 +150,38 @@ export default function Home() {
         {/* Charts - always render, even if no data yet */}
         {stockData && stockData.length > 0 ? (
           <>
-            <CandlestickChart data={stockData} />
-            <RSIChart data={stockData} />
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem'}}>
+              <div style={{color: '#9ca3af'}}>
+                {divergences ? (
+                  <p style={{margin: 0}}>The data has <strong style={{color: '#e5e7eb'}}>{divergences.length}</strong> divergences</p>
+                ) : (
+                  <p style={{margin:0, color: '#6b7280'}}>No divergence info</p>
+                )}
+                {divergences && divergences.length > 0 && activeDivIndex !== null && (
+                  <p style={{margin: 0, fontSize: '0.9rem'}}>Current: {activeDivIndex + 1} / {divergences.length} — {divergences[activeDivIndex]?.type}</p>
+                )}
+              </div>
+
+              <div>
+                <button
+                  onClick={() => setActiveDivIndex(prev => (prev === null ? null : Math.max(0, prev - 1)))}
+                  disabled={!divergences || divergences.length === 0 || activeDivIndex === null || activeDivIndex === 0}
+                  style={{marginRight: 8, padding: '0.4rem 0.6rem', borderRadius: 6, border: 'none', background: '#374151', color: '#e5e7eb', cursor: 'pointer'}}
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setActiveDivIndex(prev => (prev === null ? null : Math.min((divergences?.length ?? 1) - 1, prev + 1)))}
+                  disabled={!divergences || divergences.length === 0 || activeDivIndex === null || (divergences && activeDivIndex === divergences.length - 1)}
+                  style={{padding: '0.4rem 0.6rem', borderRadius: 6, border: 'none', background: '#111827', color: '#e5e7eb', cursor: 'pointer'}}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+
+            <CandlestickChart data={stockData} activeDivergence={activeDivIndex !== null && divergences ? divergences[activeDivIndex] : null} />
+            <RSIChart data={stockData} activeDivergence={activeDivIndex !== null && divergences ? divergences[activeDivIndex] : null} />
           </>
         ) : (
           <>

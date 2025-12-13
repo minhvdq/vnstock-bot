@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickSeries, Time } from "lightweight-charts";
+import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickSeries, LineSeries, Time } from "lightweight-charts";
 import { parseTime, timeToNumber, getValue } from "./utils";
 
 type StockData = {
@@ -13,12 +13,14 @@ type StockData = {
 
 interface CandlestickChartProps {
   data: StockData[];
+  activeDivergence?: { prefixIndex: number; suffixIndex: number; type: string } | null;
 }
 
-export default function CandlestickChart({ data }: CandlestickChartProps) {
+export default function CandlestickChart({ data, activeDivergence }: CandlestickChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const divLineRef = useRef<ISeriesApi<"Line"> | null>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -56,8 +58,16 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
       wickDownColor: "#ef4444",
     });
 
+    // Add a line series for divergence connector (initially empty)
+    const divergenceLine = chart.addSeries(LineSeries, {
+      color: '#f59e0b',
+      lineWidth: 2,
+      priceLineVisible: false,
+    });
+
     chartRef.current = chart;
     candlestickSeriesRef.current = candlestickSeries;
+    divLineRef.current = divergenceLine;
 
     // Handle window resize
     const handleResize = () => {
@@ -84,7 +94,8 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
 
     // Prepare candlestick data
     let firstTimeLogged = false;
-    const candlestickData = data
+    // Build parsed candles with original indices so we can lookup by divergence indices later
+    const parsedCandles = data
       .map((d, index) => {
         const open = getValue(d, ['open', 'Open', 'OPEN']);
         const high = getValue(d, ['high', 'High', 'HIGH']);
@@ -99,6 +110,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
             firstTimeLogged = true;
           }
           return {
+            originalIndex: index,
             time: parsedTime,
             open: Number(open),
             high: Number(high),
@@ -108,8 +120,11 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         }
         return null;
       })
-      .filter((item): item is { time: Time; open: number; high: number; low: number; close: number } => item !== null)
+      .filter((item): item is { originalIndex: number; time: Time; open: number; high: number; low: number; close: number } => item !== null)
       .sort((a, b) => timeToNumber(a.time) - timeToNumber(b.time));
+
+    // Prepare data for the candlestick series (without originalIndex)
+    const candlestickData = parsedCandles.map(({ time, open, high, low, close }) => ({ time, open, high, low, close }));
 
     console.log("Candlestick data prepared:", candlestickData.length, "items");
     if (candlestickData.length > 0) {
@@ -126,7 +141,108 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         console.error("Error updating candlestick chart:", error);
       }
     }
+
   }, [data]);
+
+  // Effect to update divergence connector whenever data or activeDivergence changes
+  useEffect(() => {
+    if (!divLineRef.current) return;
+
+    if (!activeDivergence || !data || data.length === 0) {
+      try {
+        divLineRef.current.setData([]);
+      } catch (err) {
+        // ignore
+      }
+      return;
+    }
+
+    const { prefixIndex, suffixIndex, type } = activeDivergence;
+
+    // Ensure indices are valid
+    if (prefixIndex == null || suffixIndex == null) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    if (prefixIndex < 0 || suffixIndex < 0 || prefixIndex >= data.length || suffixIndex >= data.length) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    // Find parsed candle entries by original index (the API's divergence indices refer to the original data array)
+    const parsedCandles = data
+      .map((d, index) => {
+        const open = getValue(d, ['open', 'Open', 'OPEN']);
+        const high = getValue(d, ['high', 'High', 'HIGH']);
+        const low = getValue(d, ['low', 'Low', 'LOW']);
+        const close = getValue(d, ['close', 'Close', 'CLOSE']);
+        const time = getValue(d, ['time', 'Time', 'TIME', 'time_string', 'datetime', 'date']);
+        if (open != null && high != null && low != null && close != null && time != null) {
+          return {
+            originalIndex: index,
+            time: parseTime(time),
+            open: Number(open),
+            high: Number(high),
+            low: Number(low),
+            close: Number(close),
+          };
+        }
+        return null;
+      })
+      .filter((x): x is { originalIndex: number; time: Time; open: number; high: number; low: number; close: number } => x !== null)
+      .sort((a, b) => timeToNumber(a.time) - timeToNumber(b.time));
+
+    const p1 = parsedCandles.find(c => c.originalIndex === prefixIndex);
+    const p2 = parsedCandles.find(c => c.originalIndex === suffixIndex);
+
+    if (!p1 || !p2) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    const t1raw = p1.time;
+    const t2raw = p2.time;
+    // choose price points: low for bullish, high for bearish
+    const c1raw = type === 'bullish' ? p1.low : p1.high;
+    const c2raw = type === 'bullish' ? p2.low : p2.high;
+
+    if (t1raw == null || t2raw == null || c1raw == null || c2raw == null) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    // `t1raw` and `t2raw` are already parsed `Time` values; use them directly
+    const t1 = t1raw as Time;
+    const t2 = t2raw as Time;
+    const v1 = Number(c1raw);
+    const v2 = Number(c2raw);
+
+    // choose color by divergence type
+    const color = type === 'bullish' ? '#22c55e' : type === 'bearish' ? '#ef4444' : '#f59e0b';
+    try {
+      // try to apply color option
+      // @ts-ignore - applyOptions may exist on series
+      divLineRef.current.applyOptions && divLineRef.current.applyOptions({ color });
+    } catch (err) {
+      // ignore
+    }
+
+    const normalizeTime = (t: Time): string | number => {
+      if (typeof t === 'string' || typeof t === 'number') return t;
+      // fallback for BusinessDay-like objects: convert to sortable number
+      return timeToNumber(t as any);
+    };
+
+    try {
+      divLineRef.current.setData([
+        { time: normalizeTime(t1), value: v1 },
+        { time: normalizeTime(t2), value: v2 },
+      ] as any);
+    } catch (err) {
+      console.error('Failed to set divergence line data:', err);
+    }
+  }, [data, activeDivergence]);
 
   return (
     <div

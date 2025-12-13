@@ -10,14 +10,17 @@ type StockData = {
 
 interface RSIChartProps {
   data: StockData[];
+  activeDivergence?: { prefixIndex: number; suffixIndex: number; type: string } | null;
 }
 
-export default function RSIChart({ data }: RSIChartProps) {
+export default function RSIChart({ data, activeDivergence }: RSIChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const overboughtLineRef = useRef<ISeriesApi<"Line"> | null>(null);
   const oversoldLineRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const divLineRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const parsedRsiRef = useRef<Array<{ originalIndex: number; time: Time; value: number }> | null>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -92,6 +95,13 @@ export default function RSIChart({ data }: RSIChartProps) {
     overboughtLineRef.current = overboughtLine;
     oversoldLineRef.current = oversoldLine;
 
+    const divergenceLine = rsiChart.addSeries(LineSeries, {
+      color: '#f59e0b',
+      lineWidth: 2,
+      priceLineVisible: false,
+    });
+    divLineRef.current = divergenceLine;
+
     // Handle window resize
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
@@ -115,13 +125,13 @@ export default function RSIChart({ data }: RSIChartProps) {
   useEffect(() => {
     if (!rsiSeriesRef.current || !data || data.length === 0) return;
 
-    // Prepare RSI data
+    // Prepare RSI data (keep original indices so divergences reference correctly)
     let firstRSITimeLogged = false;
-    const rsiData = data
+    const parsedRsi = data
       .map((d, index) => {
         const rsi = getValue(d, ['RSI', 'rsi']);
         const time = getValue(d, ['time', 'Time', 'TIME', 'time_string', 'datetime', 'date']);
-        
+
         if (rsi != null && !isNaN(Number(rsi)) && time != null) {
           const parsedTime = parseTime(time);
           if (!firstRSITimeLogged && index === 0) {
@@ -129,14 +139,18 @@ export default function RSIChart({ data }: RSIChartProps) {
             firstRSITimeLogged = true;
           }
           return {
+            originalIndex: index,
             time: parsedTime,
             value: Number(rsi),
           };
         }
         return null;
       })
-      .filter((item): item is { time: Time; value: number } => item !== null)
+      .filter((item): item is { originalIndex: number; time: Time; value: number } => item !== null)
       .sort((a, b) => timeToNumber(a.time) - timeToNumber(b.time));
+
+    parsedRsiRef.current = parsedRsi;
+    const rsiData = parsedRsi.map(({ time, value }) => ({ time, value }));
 
     console.log("RSI data prepared:", rsiData.length, "items");
     if (rsiData.length > 0) {
@@ -172,6 +186,63 @@ export default function RSIChart({ data }: RSIChartProps) {
       }
     }
   }, [data]);
+
+  // Update divergence connector on RSI whenever data or active divergence changes
+  useEffect(() => {
+    if (!divLineRef.current) return;
+
+    if (!activeDivergence || !data || data.length === 0) {
+      try { divLineRef.current.setData([]); } catch (e) {}
+      return;
+    }
+
+    const { prefixIndex, suffixIndex, type } = activeDivergence;
+    if (prefixIndex == null || suffixIndex == null) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    if (prefixIndex < 0 || suffixIndex < 0 || prefixIndex >= data.length || suffixIndex >= data.length) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    // use parsed RSI points (match by originalIndex so indices from backend are respected)
+    const parsed = parsedRsiRef.current;
+    if (!parsed) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    const p1 = parsed.find(p => p.originalIndex === prefixIndex);
+    const p2 = parsed.find(p => p.originalIndex === suffixIndex);
+
+    if (!p1 || !p2) {
+      divLineRef.current.setData([]);
+      return;
+    }
+
+    const t1 = p1.time;
+    const t2 = p2.time;
+    const v1 = p1.value;
+    const v2 = p2.value;
+
+    const color = type === 'bullish' ? '#22c55e' : type === 'bearish' ? '#ef4444' : '#f59e0b';
+    try { divLineRef.current.applyOptions && divLineRef.current.applyOptions({ color }); } catch(e) {}
+    const normalizeTime = (t: Time): string | number => {
+      if (typeof t === 'string' || typeof t === 'number') return t;
+      return timeToNumber(t as any);
+    };
+
+    try {
+      divLineRef.current.setData([
+        { time: normalizeTime(t1), value: v1 },
+        { time: normalizeTime(t2), value: v2 },
+      ] as any);
+    } catch (err) {
+      console.error('Failed to set RSI divergence line:', err);
+    }
+  }, [data, activeDivergence]);
 
   return (
     <div
