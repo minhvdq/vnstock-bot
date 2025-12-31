@@ -5,3 +5,9 @@ fastapi[standard]
 numpy
 pandas
 ta-lib
+pydantic
+sqlalchemy
+psycopg2-binary
+uvicorn
+passlib
+bcrypt

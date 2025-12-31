@@ -49,7 +49,8 @@ def is_divergence(df, index):
             peaks.append(i)
         if is_trough(df, i):
             troughs.append(i)
-
+    bearish_cnt = 0
+    bullish_cnt = 0
     if is_peak(df, index):
         for j in range(len(peaks) - 1, -1, -1): 
             old_idx = peaks[j]
@@ -61,16 +62,18 @@ def is_divergence(df, index):
             if is_in_range(df[index]["RSI"], 'bearish') or is_in_range(df[old_idx]["RSI"], 'bearish'):
                 
                 if df[index]["high"] > df[old_idx]["high"] and df[index]["RSI"] < df[old_idx]["RSI"]:
-                    print(f"🔴 [BEARISH] Tìm thấy Phân kỳ ÂM tại dòng {index}")
-                    print(f"   - Đỉnh cũ ({df[old_idx]['time']}): Giá {df[old_idx]['high']} | RSI {df[old_idx]['RSI']:.2f}")
-                    print(f"   - Đỉnh mới ({df[index]['time']}): Giá {df[index]['high']} | RSI {df[index]['RSI']:.2f}")
-                    print("-" * 40)
-                    divergence = {
-                        "prefixIndex": old_idx,
-                        "suffixIndex": index,
-                        "type": "bearish"
-                    }
-                    return divergence                
+                    bearish_cnt += 1
+                    if bearish_cnt >= 2:
+                        print(f"🔴 [BEARISH] Tìm thấy Phân kỳ ÂM tại dòng {index}")
+                        print(f"   - Đỉnh cũ ({df[old_idx]['time']}): Giá {df[old_idx]['high']} | RSI {df[old_idx]['RSI']:.2f}")
+                        print(f"   - Đỉnh mới ({df[index]['time']}): Giá {df[index]['high']} | RSI {df[index]['RSI']:.2f}")
+                        print("-" * 40)
+                        divergence = {
+                            "prefixIndex": old_idx,
+                            "suffixIndex": index,
+                            "type": "bearish"
+                        }
+                        return divergence                
             
     if is_trough(df, index):
         for j in range(len(troughs) - 1, -1, -1):
@@ -83,16 +86,18 @@ def is_divergence(df, index):
             if is_in_range(df[index]["RSI"], 'bullish') or is_in_range(df[old_idx]["RSI"], 'bullish'):
                 
                 if df[index]["low"] < df[old_idx]["low"] and df[index]["RSI"] > df[old_idx]["RSI"]:
-                    print(f"🟢 [BULLISH] Tìm thấy Phân kỳ DƯƠNG tại dòng {index}")
-                    print(f"   - Đáy cũ ({df[old_idx]['time']}): Giá {df[old_idx]['low']} | RSI {df[old_idx]['RSI']:.2f}")
-                    print(f"   - Đáy mới ({df[index]['time']}): Giá {df[index]['low']} | RSI {df[index]['RSI']:.2f}")
-                    print("-" * 40)     
-                    divergence = {
-                        "prefixIndex": old_idx,
-                        "suffixIndex": index,
-                        "type": "bullish"
-                    }
-                    return divergence
+                    bullish_cnt += 1
+                    if bullish_cnt >= 2:
+                        print(f"🟢 [BULLISH] Tìm thấy Phân kỳ DƯƠNG tại dòng {index}")
+                        print(f"   - Đáy cũ ({df[old_idx]['time']}): Giá {df[old_idx]['low']} | RSI {df[old_idx]['RSI']:.2f}")
+                        print(f"   - Đáy mới ({df[index]['time']}): Giá {df[index]['low']} | RSI {df[index]['RSI']:.2f}")
+                        print("-" * 40)     
+                        divergence = {
+                            "prefixIndex": old_idx,
+                            "suffixIndex": index,
+                            "type": "bullish"
+                        }
+                        return divergence
     return None
 
 def tim_phan_ky(df):
@@ -163,19 +168,12 @@ def get_price_today(symbol: str = 'VGI'):
     records_json = records.to_json(orient='records')
     print(records)
     return records_json
-    # except e:
-    #     raise ValueError("Error: " + e)
-
-    # df_intraday = quote.intraday(symbol=symbol, page_size=10_000, show_log=False)
-    # print("Stock today is ")
-    # print(df_intraday)
-    # return df_intraday.to_json(orient='records')
 
 def get_mock_price(): 
     print("Getting mock data...")
 
     quote = Quote(symbol='VGI', source='VCI') 
-    df = quote.history(start='2024-05-20', end='2024-05-20', interval='1m') 
+    df = quote.history(start='2024-05-25', end='2024-05-26', interval='1m') 
     
     df['RSI'] = talib.RSI(df['close'], timeperiod=14) 
     df_filtered = df.dropna(subset=['RSI'])
@@ -192,16 +190,16 @@ def get_mock_price():
     records_list = df_filtered.to_dict(orient="records")
     print(f"Data loaded: {len(records_list)} candles.")
     
-    # divergences = tim_phan_ky(records_list)
+    divergences = tim_phan_ky(records_list)
     return records_list, divergences
     # return df_filtered
 
 def simulate_trading():
     cur_money = 50000
     amt_stock = 0
-    df = get_mock_price()
+    records_list, _= get_mock_price()
     # Convert DataFrame to list of dictionaries for is_divergence function
-    records_list = df.to_dict(orient="records")
+    # records_list= df.to_dict(orient="records")
     n = len(records_list)
     for i in range(n):
         divergence = is_divergence(records_list, i)
@@ -216,11 +214,14 @@ def simulate_trading():
             stock_price = records_list[i]["close"]
             cur_money += stock_price * amt_stock
             amt_stock = 0
-    
+    total_money = cur_money
+    if(n > 0):
+        total_money += amt_stock * records_list[n - 1]["close"]
     print("End of trading day: ")
     print("Money in the bank: " + str(cur_money))
     print("Number of stock holding: " + str(amt_stock))
-    print("current stock price: " + str(records_list[n - 1]["close"]))
+    print("current stock price: " + (str(records_list[n - 1]["close"] if n > 0 else 0)))
+    print("total value: " + str(total_money))
 
 if __name__ == "__main__":
     # get_mock_price()

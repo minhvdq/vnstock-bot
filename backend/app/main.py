@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import stock
+from app.routers import stock, company, user
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -14,6 +14,8 @@ app.add_middleware(
 )
 
 app.include_router(stock.router)
+app.include_router(company.router)
+app.include_router(user.router)
 
 @app.get("/health")
 def root():
