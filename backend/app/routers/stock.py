@@ -2,29 +2,42 @@ import json
 import logging
 from fastapi import APIRouter, status, HTTPException
 from vnstock import Trading, Listing
-from app.services.stock_service import get_price_today, get_mock_price # Assuming this exists
-
+from app.services.stock_api_service import get_price_today, get_mock_price # Assuming this exists
+from app.services.stock_service import get_all_stocks
 # Setup basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stock", tags=["stock"])
 
-@router.get("/all-stocks")
-def get_all_stocks():
-    """
-    Get all the stocks available on market
-    """
-    try: 
-        listing = Listing()
-        df = listing.all_symbols()
-        print(df["symbol"], df["organ_name"])
+@router.get("/")
+def get_all_stocks_in_db():
+    try:
+        stocks = get_all_stocks()
+        print(stocks)
+        return stocks
     except Exception as e:
-        logger.error(f"Error fetching all stock symbols: {e}")
+        logger.error(f"Error getting stocks in db: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=f"Failed to fetch all the stock symbols: {e}"
+            detail=f"Failed to fetch all the stocks in the db: {e}"
         )
+
+# @router.get("/all-stocks")
+# def get_all_stocks():
+#     """
+#     Get all the stocks available on market
+#     """
+#     try: 
+#         listing = Listing()
+#         df = listing.all_symbols()
+#         print(df["symbol"], df["organ_name"])
+#     except Exception as e:
+#         logger.error(f"Error fetching all stock symbols: {e}")
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+#             detail=f"Failed to fetch all the stock symbols: {e}"
+#         )
 
 @router.get("/price-board")
 def get_price_board(symbol: str = "ACB"):

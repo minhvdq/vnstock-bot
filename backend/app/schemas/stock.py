@@ -14,7 +14,7 @@ class StockUpdate(BaseModel):
     # users: 
 
 class StockResponse(BaseModel):
-    id: str
+    id: int
     symbol: str
     name: str
     summary: str

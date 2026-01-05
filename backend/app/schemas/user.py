@@ -11,6 +11,8 @@ class UserCreate(BaseModel):
     password: str
 
 class UserResponse(BaseModel):
+    id: int
     name: str
     email: str
     phone: str
+    stocks: list[str]
