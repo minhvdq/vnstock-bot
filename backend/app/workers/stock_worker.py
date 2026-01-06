@@ -19,5 +19,5 @@ async def stock_worker():
             continue
         except Exception as e:
             print(f"Error in stock_worker: {e}")
-            await asyncio.sleep(5)  # Wait before retrying
+            await asyncio.sleep(5)
             continue
