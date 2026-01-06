@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     phone = Column(String, index=True)
     password_hash = Column(String)
+    chat_id = Column(String)
 
     # Relationship to Stock (using string reference to avoid circular import)
     stocks = relationship("Stock", secondary=user_stock_association, back_populates="users")

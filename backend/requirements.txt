@@ -11,3 +11,6 @@ psycopg2-binary
 uvicorn
 passlib
 bcrypt
+asyncio
+PyJWT
+httpx

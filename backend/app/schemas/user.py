@@ -15,4 +15,5 @@ class UserResponse(BaseModel):
     name: str
     email: str
     phone: str
+    chat_id: str
     stocks: list[str]
