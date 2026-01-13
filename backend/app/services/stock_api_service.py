@@ -163,18 +163,24 @@ def get_price_today(symbol: str = 'VGI'):
     if(today.weekday() == 5 or today.weekday() == 6):
         raise ValueError("Date is not a trading day")
     print(f"Getting price records on {today}...")
-    # try:
-    records = quote.history(start=today, end=today, interval='5m', to_df=False)
-    records_json = records.to_json(orient='records')
-    print(records)
-    return records_json
+    try:
+        # records = quote.history(start=today, end=today, interval='1m', to_df=False)
+        records = quote.intraday()
+        # print("Got records: " + records)
+        records_json = records.to_json(orient='records')
+        # records_json = records
+        # print(records)
+        return records_json
+    except Exception as e:
+        print("Dit me bug " + str(e))
+        raise
 
-def get_mock_price(): 
+def get_mock_price(symbol: str = 'VGI'): 
     print("Getting mock data...")
 
-    quote = Quote(symbol='VGI', source='VCI') 
-    df = quote.history(start='2024-05-25', end='2024-05-26', interval='1m') 
-    
+    quote = Quote(symbol=symbol, source='VCI') 
+    # df = quote.history(start='2024-05-25', end='2024-05-26', interval='1m') 
+    df = quote.intraday(symbol=symbol)
     df['RSI'] = talib.RSI(df['close'], timeperiod=14) 
     df_filtered = df.dropna(subset=['RSI'])
     
