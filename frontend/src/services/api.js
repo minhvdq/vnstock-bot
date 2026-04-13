@@ -16,7 +16,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 400 || err.response?.status === 401) {
+    if (err.response?.status === 401) {
       const detail = err.response?.data?.detail || ''
       if (detail.includes('authenticated') || detail.includes('Token')) {
         customStorage.removeItem('localUser')

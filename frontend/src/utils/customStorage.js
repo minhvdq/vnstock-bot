@@ -38,4 +38,6 @@ const setItem = (key, val) => {
 
 }
 
-export default {getItem, setItem}
+const removeItem = (key) => window.localStorage.removeItem(key)
+
+export default {getItem, setItem, removeItem}
