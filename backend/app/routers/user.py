@@ -61,6 +61,8 @@ def remove_stock_endpoint(data: RemoveStockRequest, request: Request):
     try:
         user = request.state.user
         return remove_stock_from_user(user_id=user.id, stock_symbol=data.symbol)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error removing stock from user {user.id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
