@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-from datetime import date, timedelta
 import talib
 import pandas as pd
 from vnstock import Quote
