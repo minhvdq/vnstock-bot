@@ -1,7 +1,8 @@
 import asyncio
 from datetime import date
 from app.services.user_service import get_all_users
-from app.services.stock_api_service import is_divergence, get_price_today, get_mock_price
+from app.services.stock_api_service import get_price_today, get_mock_price
+from app.algorithms.rsi_divergence import _has_divergence_at
 from app.utils.telegram import send_message
 from sqlalchemy.exc import OperationalError, DisconnectionError
 
@@ -13,11 +14,10 @@ async def stock_worker():
                 if not user.chat_id or user.chat_id == "":
                     continue
                 for stock in user.stocks:
-                    df = get_mock_price(stock)
-                    print(df)
-                    l = len(df)
+                    records_list, _ = get_mock_price(stock)
+                    l = len(records_list)
                     print("length is " + str(l))
-                    divergence = is_divergence(df, l - 1)
+                    divergence = _has_divergence_at(records_list, l - 1)
                     # if divergence:
                     #     print("Got the divergence " + str(divergence))
                         # send_message(user.chat_id, f"Stock {stock} is a divergence: {divergence.suffixIndex} and {divergence.prefixIndex} at type {divergence.type}")
