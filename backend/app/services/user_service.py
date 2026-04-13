@@ -169,6 +169,46 @@ def add_stock_to_user(user_id: int, stock_symbol: str) -> UserResponse:
     finally:
         db.close()
     
+def remove_stock_from_user(user_id: int, stock_symbol: str) -> UserResponse:
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with id {user_id} not found"
+            )
+
+        stock = db.query(Stock).filter(Stock.symbol == stock_symbol).first()
+        if stock:
+            stmt = user_stock_association.delete().where(
+                (user_stock_association.c.user_id == user.id) &
+                (user_stock_association.c.stock_id == stock.id)
+            )
+            db.execute(stmt)
+            db.commit()
+            db.refresh(user)
+
+        stocks_str = [s.symbol for s in user.stocks]
+        return UserResponse(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            phone=user.phone,
+            chat_id=user.chat_id or '',
+            stocks=stocks_str,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error removing stock from user: {str(e)}",
+        )
+    finally:
+        db.close()
+
 def define_user_chatid(user_id: int, chat_id: str):
     db = SessionLocal()
     try:

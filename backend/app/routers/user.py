@@ -1,7 +1,7 @@
 import json
 import logging
 from fastapi import APIRouter, Request, Depends, status, HTTPException
-from app.services.user_service import get_all_users, create_user, add_stock_to_user
+from app.services.user_service import get_all_users, create_user, add_stock_to_user, remove_stock_from_user
 from app.schemas.user import UserCreate
 from app.utils.middlewares import authen_restricted
 from pydantic import BaseModel
@@ -46,6 +46,25 @@ def add_stock(data: AddStockRequest):
     except Exception as e:
         logger.error(f"Error add more stock to user {id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.get("/me")
+def get_me(request: Request):
+    return request.state.user
+
+
+class RemoveStockRequest(BaseModel):
+    symbol: str
+
+
+@router.delete("/remove_stock")
+def remove_stock_endpoint(data: RemoveStockRequest, request: Request):
+    try:
+        user = request.state.user
+        return remove_stock_from_user(user_id=user.id, stock_symbol=data.symbol)
+    except Exception as e:
+        logger.error(f"Error removing stock from user {user.id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 
 @router.get("/telegram_connect")
 def get_link_connect_telegram(request: Request):
