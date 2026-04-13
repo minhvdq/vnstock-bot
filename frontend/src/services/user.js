@@ -12,4 +12,4 @@ export const getTelegramLink = () =>
   api.get('/user/telegram_connect').then(r => r.data)
 
 export const getCompanies = () =>
-  api.get('/company/all').then(r => r.data)
+  api.get('/company/all-companies').then(r => r.data)

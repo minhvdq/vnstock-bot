@@ -24,13 +24,13 @@ export default function Home({ curUser }) {
       })
       .catch(() => message.error('Failed to load data'))
       .finally(() => setLoading(false))
-  }, [curUser])
+  }, [curUser, navigate])
 
   const handleAdd = (symbol) => {
     const prev = [...watchlist]
     if (prev.includes(symbol)) return
     setWatchlist([...prev, symbol])
-    addStock(curUser.id, symbol)
+    addStock(user.id, symbol)
       .then(updated => setWatchlist(updated.stocks))
       .catch(() => {
         setWatchlist(prev)
