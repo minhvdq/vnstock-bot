@@ -1,7 +1,7 @@
 import asyncio
 from app.workers.stock_worker import stock_worker
 from fastapi import FastAPI
-from app.routers import stock, company, user, auth
+from app.routers import stock, company, user, auth, backtest
 from app.services.user_service import define_user_chatid
 from app.utils.telegram import send_message
 from app.services.user_service import get_all_users
@@ -22,6 +22,7 @@ app.include_router(stock.router)
 app.include_router(company.router)
 app.include_router(user.router)
 app.include_router(auth.router)
+app.include_router(backtest.router)
 
 @app.on_event("startup")
 async def startup_event():
