@@ -20,6 +20,9 @@ def run_backtest(
 
     Raises ValueError for: unknown strategy, empty data, insufficient data.
     """
+    if not symbol or not symbol.strip():
+        raise ValueError('symbol must not be empty')
+
     if strategy_name not in STRATEGIES:
         raise ValueError(f'Unknown strategy: {strategy_name}')
 
