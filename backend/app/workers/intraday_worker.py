@@ -16,7 +16,7 @@ async def _poll_once(get_users=get_all_users) -> None:
     """One intraday poll cycle. Testable entry point for the worker loop."""
     global _seen, _seen_date
 
-    today = date.today().isoformat()
+    today = datetime.now(ICT).date().isoformat()
     if today != _seen_date:
         _seen.clear()
         _seen_date = today

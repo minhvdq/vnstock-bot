@@ -44,7 +44,7 @@ async def telegram_webhook(update: dict):
         user_id = text.split(" ")[1]   
         # try:
         define_user_chatid(user_id=user_id, chat_id=chat_id)
-        await send_message(chat_id=chat_id, msg=f"Successfully define chat id for user {user_id}")
+        await send_message(chat_id=chat_id, text=f"Successfully define chat id for user {user_id}")
         # return {"ok": True}
         # except Exception as e:
         #     raise HT
