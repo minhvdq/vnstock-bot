@@ -8,7 +8,7 @@ const TRADE_COLUMNS = [
     title: 'Action',
     dataIndex: 'action',
     key: 'action',
-    render: (v) => (
+    render: (v) => v == null ? '—' : (
       <span style={{ color: v === 'buy' ? '#52c41a' : '#ff4d4f', fontWeight: 'bold' }}>
         {v.toUpperCase()}
       </span>
@@ -18,7 +18,7 @@ const TRADE_COLUMNS = [
     title: 'Price (VND)',
     dataIndex: 'price',
     key: 'price',
-    render: (v) => v.toLocaleString(),
+    render: (v) => v == null ? '—' : v.toLocaleString(),
   },
   { title: 'Shares', dataIndex: 'shares', key: 'shares' },
   {
@@ -88,7 +88,7 @@ export default function Backtest() {
                 title="Total P&L (VND)"
                 value={result.pnl}
                 precision={0}
-                valueStyle={{ color: result.pnl >= 0 ? '#52c41a' : '#ff4d4f' }}
+                valueStyle={{ color: (result.pnl ?? 0) >= 0 ? '#52c41a' : '#ff4d4f' }}
               />
             </div>
             <div className="col-6 col-md-3">
@@ -97,7 +97,7 @@ export default function Backtest() {
                 value={result.pnl_pct}
                 precision={2}
                 suffix="%"
-                valueStyle={{ color: result.pnl_pct >= 0 ? '#52c41a' : '#ff4d4f' }}
+                valueStyle={{ color: (result.pnl_pct ?? 0) >= 0 ? '#52c41a' : '#ff4d4f' }}
               />
             </div>
             <div className="col-6 col-md-3">
