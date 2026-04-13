@@ -20,10 +20,10 @@ def _is_peak(df: list, i: int, order: int = 5) -> bool:
         return False
     current_high = df[i]['high']
     for j in range(i - order, i):
-        if df[j]['high'] > current_high:
+        if df[j]['high'] >= current_high:
             return False
     for j in range(i + 1, i + order + 1):
-        if df[j]['high'] > current_high:
+        if df[j]['high'] >= current_high:
             return False
     return True
 
@@ -34,10 +34,10 @@ def _is_trough(df: list, i: int, order: int = 5) -> bool:
         return False
     current_low = df[i]['low']
     for j in range(i - order, i):
-        if df[j]['low'] < current_low:
+        if df[j]['low'] <= current_low:
             return False
     for j in range(i + 1, i + order + 1):
-        if df[j]['low'] < current_low:
+        if df[j]['low'] <= current_low:
             return False
     return True
 
@@ -103,9 +103,11 @@ def _has_divergence_at(df: list, index: int) -> dict | None:
             troughs.append(i)
 
     bearish_cnt = 0
+    first_match_bearish = None
     if _is_peak(df, index):
-        for j in range(len(peaks) - 1, -1, -1):
-            old_idx = peaks[j]
+        earlier_peaks = [p for p in peaks if p < index]
+        for j in range(len(earlier_peaks) - 1, -1, -1):
+            old_idx = earlier_peaks[j]
             distance = index - old_idx
             if distance > 60:
                 break
@@ -114,13 +116,17 @@ def _has_divergence_at(df: list, index: int) -> dict | None:
             if _is_in_range(df[index]['RSI'], 'bearish') or _is_in_range(df[old_idx]['RSI'], 'bearish'):
                 if df[index]['high'] > df[old_idx]['high'] and df[index]['RSI'] < df[old_idx]['RSI']:
                     bearish_cnt += 1
+                    if bearish_cnt == 1:
+                        first_match_bearish = old_idx
                     if bearish_cnt >= 2:
-                        return {'prefixIndex': old_idx, 'suffixIndex': index, 'type': 'bearish'}
+                        return {'prefixIndex': first_match_bearish, 'suffixIndex': index, 'type': 'bearish'}
 
     bullish_cnt = 0
+    first_match_bullish = None
     if _is_trough(df, index):
-        for j in range(len(troughs) - 1, -1, -1):
-            old_idx = troughs[j]
+        earlier_troughs = [t for t in troughs if t < index]
+        for j in range(len(earlier_troughs) - 1, -1, -1):
+            old_idx = earlier_troughs[j]
             distance = index - old_idx
             if distance > 60:
                 break
@@ -129,8 +135,10 @@ def _has_divergence_at(df: list, index: int) -> dict | None:
             if _is_in_range(df[index]['RSI'], 'bullish') or _is_in_range(df[old_idx]['RSI'], 'bullish'):
                 if df[index]['low'] < df[old_idx]['low'] and df[index]['RSI'] > df[old_idx]['RSI']:
                     bullish_cnt += 1
+                    if bullish_cnt == 1:
+                        first_match_bullish = old_idx
                     if bullish_cnt >= 2:
-                        return {'prefixIndex': old_idx, 'suffixIndex': index, 'type': 'bullish'}
+                        return {'prefixIndex': first_match_bullish, 'suffixIndex': index, 'type': 'bullish'}
 
     return None
 

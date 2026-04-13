@@ -137,3 +137,46 @@ def test_generate_signals_bearish_overrides_bullish_on_same_candle():
     result = strategy.generate_signals(df)
     # Index 22 has bearish divergence — it must not be overwritten to 1
     assert result.iloc[22]['signal'] == -1
+
+
+def _bullish_divergence_data() -> list:
+    """
+    35-candle series with one guaranteed bullish divergence.
+
+    Trough 1 at index 7 (order=5): low=20, RSI=30 (bullish zone <35).
+    Trough 2 at index 22 (order=5): low=15, RSI=33.
+      - lower low (15 < 20) + higher RSI (33 > 30) = bullish divergence
+      - distance = 22 - 7 = 15  (valid: 10 <= 15 <= 60)
+    """
+    rows = _flat_data(35)
+    # Trough 1 shape: fall through indices 2-7, rise through 8-12
+    for idx, val in zip(range(2, 13), [40, 30, 25, 22, 21, 20, 21, 22, 25, 30, 35]):
+        rows[idx]['low'] = float(val)
+    rows[7]['RSI'] = 30.0
+
+    # Trough 2 shape: fall through indices 17-22, rise through 23-27
+    for idx, val in zip(range(17, 28), [35, 28, 22, 18, 16, 15, 16, 18, 22, 28, 35]):
+        rows[idx]['low'] = float(val)
+    rows[22]['RSI'] = 33.0  # lower low but higher RSI → bullish divergence
+    return rows
+
+
+def test_find_divergences_detects_bullish():
+    rows = _bullish_divergence_data()
+    result = _find_divergences(rows)
+    bullish = [d for d in result if d['type'] == 'bullish']
+    assert len(bullish) >= 1
+    assert bullish[0]['prefixIndex'] == 7
+    assert bullish[0]['suffixIndex'] == 22
+
+
+def test_generate_signals_sets_bullish_signal_at_suffix():
+    df = pd.DataFrame(_bullish_divergence_data())
+    result = RSIStrategy().generate_signals(df)
+    assert result.iloc[22]['signal'] == 1
+
+
+def test_has_divergence_at_returns_none_for_non_divergence():
+    rows = _flat_data(35)
+    # No peaks/troughs in flat data, so no divergence at any index
+    assert _has_divergence_at(rows, 17) is None
