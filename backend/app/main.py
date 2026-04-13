@@ -1,5 +1,6 @@
 import asyncio
-from app.workers.stock_worker import stock_worker
+from app.workers.intraday_worker import intraday_worker
+from app.workers.daily_worker import daily_worker
 from fastapi import FastAPI
 from app.routers import stock, company, user, auth, backtest
 from app.services.user_service import define_user_chatid
@@ -26,14 +27,12 @@ app.include_router(backtest.router)
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the background worker automatically
-    # Wrap in try-except to prevent startup from hanging if worker fails
     try:
-        asyncio.create_task(stock_worker())
-        print("Stock worker started successfully")
+        asyncio.create_task(intraday_worker())
+        asyncio.create_task(daily_worker())
+        print("Workers started successfully")
     except Exception as e:
-        print(f"Error starting stock worker: {e}")
-        # Don't raise - allow the app to start even if worker fails
+        print(f"Error starting workers: {e}")
 
 @app.post("/webhook")
 async def telegram_webhook(update: dict):
