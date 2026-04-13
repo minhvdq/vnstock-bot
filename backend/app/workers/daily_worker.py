@@ -28,8 +28,9 @@ async def _run_daily_check(get_users=get_all_users) -> None:
     """One daily signal check. Testable entry point for the worker loop."""
     users = get_users()
     symbol_to_chat_ids = build_symbol_map(users)
-    today = date.today().isoformat()
-    start = (date.today() - timedelta(days=90)).isoformat()
+    ict_today = datetime.now(ICT).date()
+    today = ict_today.isoformat()
+    start = (ict_today - timedelta(days=90)).isoformat()
 
     for symbol, chat_ids in symbol_to_chat_ids.items():
         try:
