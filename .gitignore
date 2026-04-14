@@ -190,3 +190,29 @@ backend/venv/
 backend/ENV/
 backend/env/
 
+# SQLite / Local Databases
+*.sqlite3
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Large Data files (Historical stock data)
+data/*.csv
+data/*.json
+data/*.parquet
+**/stock_data/
+
+# Specific Bot Logs
+backend/logs/
+**/trade_history.json
+**/backtest_results/
+
+# Cursor AI
+.cursor/
+.cursorignore
+# If you use Claude Dev / Roo Code / etc.
+.claudedev/
+
+# Private Research / Plans
+docs/superpowers/plans/

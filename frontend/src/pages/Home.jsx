@@ -10,20 +10,25 @@ export default function Home({ curUser }) {
   const [companies, setCompanies] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [companiesLoading, setCompaniesLoading] = useState(true)
 
   useEffect(() => {
     if (!curUser) {
       navigate('/authen')
       return
     }
-    Promise.all([getMe(), getCompanies()])
-      .then(([me, cps]) => {
+    getMe()
+      .then(me => {
         setUser(me)
         setWatchlist(me.stocks)
-        setCompanies(cps)
       })
-      .catch(() => message.error('Failed to load data'))
+      .catch(() => message.error('Failed to load user data'))
       .finally(() => setLoading(false))
+
+    getCompanies()
+      .then(cps => setCompanies(cps))
+      .catch(() => message.error('Failed to load company list'))
+      .finally(() => setCompaniesLoading(false))
   }, [curUser, navigate])
 
   const handleAdd = (symbol) => {
@@ -92,9 +97,10 @@ export default function Home({ curUser }) {
 
       <div>
         <Input
-          placeholder="Search by symbol or company name..."
+          placeholder={companiesLoading ? 'Loading company list...' : 'Search by symbol or company name...'}
           value={search}
           onChange={e => setSearch(e.target.value)}
+          disabled={companiesLoading}
           style={{ maxWidth: 400 }}
         />
         {filtered.map(c => (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import customStorage from './utils/customStorage'
 import Authentication from './pages/Authentication'
@@ -7,14 +7,10 @@ import Backtest from './pages/Backtest'
 import Layout from './components/Layout'
 
 export default function App() {
-  const [curUser, setCurUser] = useState(null)
-
-  useEffect(() => {
+  const [curUser, setCurUser] = useState(() => {
     const loggedUser = customStorage.getItem('localUser')
-    if (loggedUser) {
-      setCurUser(JSON.parse(loggedUser))
-    }
-  }, [])
+    return loggedUser ? JSON.parse(loggedUser) : null
+  })
 
   return (
     <BrowserRouter>
