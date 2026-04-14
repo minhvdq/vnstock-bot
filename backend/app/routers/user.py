@@ -17,13 +17,12 @@ router = APIRouter(
 )
 
 class AddStockRequest(BaseModel):
-    user_id: int
     symbol: str
 
 @router.get("/")
 def get_all():
     try:
-        users = get_all_users()   
+        users = get_all_users()
         return users
     except Exception as e:
         logger.error(f"Error getting all users: {e}")
@@ -37,14 +36,15 @@ def create(user: UserCreate):
     except Exception as e:
         logger.error(f"Error creating user: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    
+
 @router.put("/add_stock")
-def add_stock(data: AddStockRequest):
+def add_stock(data: AddStockRequest, request: Request):
     try:
-        user = add_stock_to_user(user_id=data.user_id, stock_symbol=data.symbol)
-        return user
+        user = request.state.user
+        result = add_stock_to_user(user_id=user.id, stock_symbol=data.symbol)
+        return result
     except Exception as e:
-        logger.error(f"Error add more stock to user {id}: {e}")
+        logger.error(f"Error adding stock to user {user.id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get("/me")

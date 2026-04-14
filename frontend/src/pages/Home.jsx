@@ -30,7 +30,7 @@ export default function Home({ curUser }) {
     const prev = [...watchlist]
     if (prev.includes(symbol)) return
     setWatchlist([...prev, symbol])
-    addStock(user.id, symbol)
+    addStock(symbol)
       .then(updated => setWatchlist(updated.stocks))
       .catch(() => {
         setWatchlist(prev)
