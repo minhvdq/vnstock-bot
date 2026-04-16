@@ -215,4 +215,4 @@ backend/logs/
 .claudedev/
 
 # Private Research / Plans
-docs/superpowers/plans/
+docs/superpowers/plans/.worktrees/
