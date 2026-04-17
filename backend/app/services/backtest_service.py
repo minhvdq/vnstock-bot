@@ -31,24 +31,25 @@ def run_backtest(
         raise ValueError(f'Unknown strategy: {strategy_name}')
 
     strategy_cls = STRATEGIES[strategy_name]
-    is_intraday = strategy_cls.timeframe == "intraday"
-    interval = '5m' if is_intraday else '1D'
-    default_days = 30 if is_intraday else 365
+
+    if strategy_cls.timeframe == "intraday":
+        raise ValueError(
+            f'Backtesting intraday strategies is not supported: '
+            f'vnstock does not provide historical minute-level data for futures. '
+            f'Use live paper trading to evaluate this strategy.'
+        )
 
     today = date.today()
-    start = start_date or (today - timedelta(days=default_days)).isoformat()
+    start = start_date or (today - timedelta(days=365)).isoformat()
     end = end_date or today.isoformat()
 
-    df: pd.DataFrame = Quote(symbol=symbol, source='VCI').history(start=start, end=end, interval=interval)
+    df: pd.DataFrame = Quote(symbol=symbol, source='VCI').history(start=start, end=end, interval='1D')
 
     if df is None or df.empty:
         raise ValueError(f'No data returned for {symbol}')
 
-    if strategy_name == 'rsi_divergence':
-        df['RSI'] = talib.RSI(df['close'], timeperiod=14)
-        df = df.dropna(subset=['RSI']).reset_index(drop=True)
-    else:
-        df = df.dropna(subset=['close']).reset_index(drop=True)
+    df['RSI'] = talib.RSI(df['close'], timeperiod=14)
+    df = df.dropna(subset=['RSI']).reset_index(drop=True)
 
     if len(df) < 30:
         raise ValueError(
