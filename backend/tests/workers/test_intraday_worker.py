@@ -20,7 +20,8 @@ class _User:
 @pytest.fixture(autouse=True)
 def patch_paper_trading():
     with patch('app.workers.intraday_worker.paper_trading_service.on_signal', new_callable=AsyncMock), \
-         patch('app.workers.intraday_worker.paper_trading_service.check_positions', new_callable=AsyncMock):
+         patch('app.workers.intraday_worker.paper_trading_service.check_positions', new_callable=AsyncMock), \
+         patch('app.workers.intraday_worker.record_bars', return_value=0):
         yield
 
 

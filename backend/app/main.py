@@ -9,7 +9,8 @@ from app.services.user_service import get_all_users
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import engine, Base
 from sqlalchemy import text
-import app.models.paper_trading  # noqa: F401 — ensure tables are registered with Base
+import app.models.paper_trading   # noqa: F401 — ensure tables are registered with Base
+import app.models.intraday_bar    # noqa: F401 — ensure tables are registered with Base
 
 
 app = FastAPI(title="Stock Bot API")

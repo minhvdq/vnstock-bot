@@ -6,6 +6,7 @@ from sqlalchemy.exc import OperationalError, DisconnectionError
 from app.services.user_service import get_all_users
 from app.services.signal_service import fetch_intraday_ohlcv_with_rsi, send_signal
 from app.services import paper_trading_service
+from app.services.intraday_recorder import record_bars
 from app.algorithms import STRATEGIES
 
 ICT = timezone(timedelta(hours=7))
@@ -43,6 +44,9 @@ async def _poll_once(get_users=get_all_users) -> None:
             if not records_list:
                 print(f'[intraday] {symbol}: no 1m data returned')
                 continue
+            inserted = record_bars(symbol, records_list)
+            if inserted:
+                print(f'[intraday] {symbol}: recorded {inserted} new bars')
             df = pd.DataFrame(records_list)
 
             for strategy_name, StrategyClass in intraday_strategies.items():
