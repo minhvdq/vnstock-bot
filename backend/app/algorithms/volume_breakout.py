@@ -15,7 +15,7 @@ class VolumeBreakoutStrategy(BaseStrategy):
     Once-per-day deduplication is enforced in the worker, not here.
     """
     timeframe = "intraday"
-    display_name = "Volume Breakout"
+    display_name = "Volume Breakout (Futures)"
     exit_rules = {
         "stop_loss_pct": -0.02,
         "take_profit_pct": 0.04,
