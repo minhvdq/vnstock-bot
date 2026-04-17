@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from app.services.batch_backtest_service import _run_one, get_results
+from app.services.batch_backtest_service import _throttled_run_one as _run_one, get_results
 
 
 def _mock_result(pnl_pct=10.0):
@@ -32,6 +32,15 @@ def test_run_one_captures_error(mock_backtest):
     assert result['symbol'] == 'XYZ'
     assert result['error'] is not None
     assert 'No data' in result['error']
+    assert result['pnl_pct'] == 0.0
+
+
+@patch('app.services.batch_backtest_service.run_backtest')
+def test_run_one_captures_system_exit(mock_backtest):
+    """vnstock calls sys.exit() on rate limit — must be caught, not crash batch."""
+    mock_backtest.side_effect = SystemExit('Rate limit exceeded.')
+    result = _run_one('VCB', 'rsi_divergence', '2024-01-01', '2024-12-31')
+    assert result['error'] is not None
     assert result['pnl_pct'] == 0.0
 
 

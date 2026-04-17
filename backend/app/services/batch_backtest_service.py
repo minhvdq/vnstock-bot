@@ -1,4 +1,6 @@
 from __future__ import annotations
+import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from sqlalchemy.dialects.postgresql import insert
@@ -17,7 +19,23 @@ DEFAULT_SYMBOLS = [
 DEFAULT_STRATEGIES = ['rsi_divergence', 'ema_macd', 'donchian_breakout']
 
 
-def _run_one(symbol: str, strategy: str, start: str, end: str) -> dict:
+# vnstock guest limit: 20 req/min. Throttle to 17/min to stay safe.
+# Free community key (vnstocks.com/login): 60 req/min → set DELAY_SECONDS=1.0
+DELAY_SECONDS = 3.5
+_rate_lock = threading.Lock()
+_last_request_time: float = 0.0
+
+
+def _throttled_run_one(symbol: str, strategy: str, start: str, end: str) -> dict:
+    """Rate-limited wrapper: enforces minimum gap between requests."""
+    global _last_request_time
+    with _rate_lock:
+        now = time.monotonic()
+        wait = DELAY_SECONDS - (now - _last_request_time)
+        if wait > 0:
+            time.sleep(wait)
+        _last_request_time = time.monotonic()
+
     try:
         result = run_backtest(symbol=symbol, strategy_name=strategy,
                               start_date=start, end_date=end)
@@ -35,7 +53,9 @@ def _run_one(symbol: str, strategy: str, start: str, end: str) -> dict:
             'total_trades': result.total_trades,
             'error': None,
         }
-    except Exception as e:
+    except BaseException as e:
+        # Catch BaseException to handle vnstock's SystemExit on rate limit
+        error_msg = str(e)[:200] if str(e) else type(e).__name__
         return {
             'symbol': symbol,
             'strategy_name': strategy,
@@ -48,7 +68,7 @@ def _run_one(symbol: str, strategy: str, start: str, end: str) -> dict:
             'win_rate': 0.0,
             'max_drawdown': 0.0,
             'total_trades': 0,
-            'error': str(e)[:200],
+            'error': error_msg,
         }
 
 
@@ -57,17 +77,20 @@ def run_batch(
     strategies: list[str] = DEFAULT_STRATEGIES,
     start: str = '2024-01-01',
     end: str = '2025-12-31',
-    max_workers: int = 8,
 ) -> list[dict]:
     """
-    Run backtest for every (symbol, strategy) pair in parallel.
+    Run backtest for every (symbol, strategy) pair sequentially with rate limiting.
+    Guest plan: 20 req/min → 3.5s delay → ~3.5 min for 60 requests.
+    Free community key (60 req/min): set DELAY_SECONDS=1.0 → ~1 min.
     Upserts results to DB and returns the full list.
     """
     tasks = [(s, st) for s in symbols for st in strategies]
     results = []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_run_one, sym, strat, start, end): (sym, strat)
+    # Single worker: rate limiter serialises requests; parallelism would just
+    # cause threads to pile up waiting on the lock anyway.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        futures = {pool.submit(_throttled_run_one, sym, strat, start, end): (sym, strat)
                    for sym, strat in tasks}
         for future in as_completed(futures):
             results.append(future.result())
