@@ -66,6 +66,7 @@ const COLUMNS = [
 ]
 
 function summaryStats(results) {
+  if (!Array.isArray(results)) return null
   const ok = results.filter(r => !r.error)
   if (!ok.length) return null
   const byStrategy = {}
@@ -95,7 +96,10 @@ export default function BatchBacktest() {
   // On mount: check if a job is already running, and load existing results
   useEffect(() => {
     getBatchResults(start, end)
-      .then(d => { if (d.count > 0) { setResults(d.results); setLastRun(d.results[0]?.run_at) } })
+      .then(d => {
+        const rows = Array.isArray(d?.results) ? d.results : []
+        if (rows.length > 0) { setResults(rows); setLastRun(rows[0]?.run_at) }
+      })
       .catch(() => {})
     getBatchStatus()
       .then(s => { if (s.status === 'running') startPolling(start, end) })
@@ -114,9 +118,9 @@ export default function BatchBacktest() {
           clearInterval(pollRef.current)
           setLoading(false)
           getBatchResults(s, e).then(d => {
-            setResults(d.results)
+            setResults(Array.isArray(d?.results) ? d.results : [])
             setLastRun(new Date().toISOString())
-          })
+          }).catch(() => {})
         } else if (status.status === 'error') {
           clearInterval(pollRef.current)
           setLoading(false)
@@ -204,7 +208,7 @@ export default function BatchBacktest() {
         </div>
       )}
 
-      {results.length > 0 && !loading && (
+      {Array.isArray(results) && results.length > 0 && !loading && (
         <Table
           dataSource={results.filter(r => !r.error).map((r, i) => ({ ...r, key: i }))}
           columns={COLUMNS}
