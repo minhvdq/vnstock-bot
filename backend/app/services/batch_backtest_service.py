@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -7,6 +8,15 @@ from sqlalchemy.dialects.postgresql import insert
 from app.db.database import SessionLocal
 from app.models.batch_backtest import BatchBacktestResult
 from app.services.backtest_service import run_backtest
+
+# Configure vnstock API key if provided (community: 60 req/min vs guest: 20 req/min)
+_api_key = os.getenv('VNSTOCK_API_KEY')
+if _api_key:
+    try:
+        import vnai
+        vnai.setup_api_key(_api_key)
+    except Exception:
+        pass
 
 # Top 20 VN30 liquid stocks with reliable vnstock history
 DEFAULT_SYMBOLS = [
@@ -19,9 +29,8 @@ DEFAULT_SYMBOLS = [
 DEFAULT_STRATEGIES = ['rsi_divergence', 'ema_macd', 'donchian_breakout']
 
 
-# vnstock guest limit: 20 req/min. Throttle to 17/min to stay safe.
-# Free community key (vnstocks.com/login): 60 req/min → set DELAY_SECONDS=1.0
-DELAY_SECONDS = 3.5
+# Community key: 60 req/min → 1.1s delay. Guest (no key): 20 req/min → 3.5s delay.
+DELAY_SECONDS = 1.1 if _api_key else 3.5
 _rate_lock = threading.Lock()
 _last_request_time: float = 0.0
 
