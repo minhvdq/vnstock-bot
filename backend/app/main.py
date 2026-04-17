@@ -8,6 +8,7 @@ from app.utils.telegram import send_message
 from app.services.user_service import get_all_users
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import engine, Base
+from sqlalchemy import text
 import app.models.paper_trading  # noqa: F401 — ensure tables are registered with Base
 
 
@@ -31,8 +32,14 @@ app.include_router(paper_trading.router)
 @app.on_event("startup")
 async def startup_event():
     try:
-        # Create paper trading tables if they don't exist
         Base.metadata.create_all(bind=engine, checkfirst=True)
+        # Add strategy_name column to existing paper_trades table if missing
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE paper_trades "
+                "ADD COLUMN IF NOT EXISTS strategy_name VARCHAR(50) NOT NULL DEFAULT 'rsi_divergence'"
+            ))
+            conn.commit()
         asyncio.create_task(intraday_worker())
         asyncio.create_task(daily_worker())
         print("Workers started successfully")

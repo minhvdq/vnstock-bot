@@ -50,6 +50,7 @@ class PaperTrade(Base):
     pnl_amount = Column(BigInteger, nullable=True)
     pnl_pct = Column(Float, nullable=True)
     status = Column(Enum(TradeStatus), nullable=False, default=TradeStatus.open)
+    strategy_name = Column(String(50), nullable=False, server_default='rsi_divergence')
 
     portfolio = relationship("PaperPortfolio", back_populates="trades",
                              foreign_keys=[user_id],
