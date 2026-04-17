@@ -85,16 +85,10 @@ def test_run_backtest_daily_strategy_uses_1d_interval(mock_quote_cls):
     assert call_kwargs['interval'] == '1D'
 
 
-@patch('app.services.backtest_service.Quote')
-def test_run_backtest_intraday_strategy_uses_5m_interval(mock_quote_cls):
-    """Volume Breakout (intraday) fetches '5m' candles."""
-    mock_quote_cls.return_value.history.return_value = _daily_df(100)
-
-    result = run_backtest('VGI', 'volume_breakout', '2024-01-01', '2024-01-31')
-
-    assert isinstance(result, BacktestResult)
-    call_kwargs = mock_quote_cls.return_value.history.call_args.kwargs
-    assert call_kwargs['interval'] == '5m'
+def test_run_backtest_raises_for_intraday_strategy():
+    """Intraday strategies cannot be backtested — vnstock has no historical minute-level futures data."""
+    with pytest.raises(ValueError, match='Backtesting intraday strategies is not supported'):
+        run_backtest('VN30F1M', 'volume_breakout', '2024-01-01', '2024-01-31')
 
 
 @patch('app.services.backtest_service.Quote')

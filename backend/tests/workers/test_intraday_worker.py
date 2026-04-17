@@ -10,12 +10,11 @@ _next_user_id = 100
 
 
 class _User:
-    def __init__(self, chat_id, stocks):
+    def __init__(self, chat_id):
         global _next_user_id
         self.id = _next_user_id
         _next_user_id += 1
         self.chat_id = chat_id
-        self.stocks = stocks
 
 
 @pytest.fixture(autouse=True)
@@ -27,13 +26,12 @@ def patch_paper_trading():
 
 @pytest.fixture(autouse=True)
 def reset_intraday_fired():
-    """Clear the once-per-day guard between tests."""
     iw._intraday_fired.clear()
     yield
     iw._intraday_fired.clear()
 
 
-def _make_records(n=30, close=24500.0):
+def _make_records(n=30, close=1250.0):
     return [
         {'time': f'2024-01-01 {i:02d}:00', 'open': close, 'high': close + 0.5,
          'low': close - 0.5, 'close': close, 'volume': 1000, 'RSI': 50.0}
@@ -59,43 +57,64 @@ def _make_stub_strategy(signal: int):
     return StubIntraday
 
 
-# ── _poll_once ────────────────────────────────────────────────────────────────
+_FIXED_SYMBOLS = ['VN30F1M', 'VN100F1M']
 
-def test_fires_signal_when_intraday_strategy_returns_buy():
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
+
+def test_fires_signal_for_all_users_on_futures_symbol():
+    users = [_User('111'), _User('222')]
+    with patch('app.workers.intraday_worker.INTRADAY_SYMBOLS', ['VN30F1M']), \
+         patch('app.workers.intraday_worker.fetch_intraday_ohlcv_with_rsi', return_value=_make_records()), \
          patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.intraday_worker.paper_trading_service.on_signal', new_callable=AsyncMock) as mock_paper, \
+         patch('app.workers.intraday_worker.paper_trading_service.check_positions', new_callable=AsyncMock), \
          patch('app.workers.intraday_worker.STRATEGIES', {'vol_break': _make_stub_strategy(1)}):
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
+        asyncio.run(iw._poll_once(get_users=lambda: users))
     mock_send.assert_called_once()
+    assert mock_paper.call_count == 2  # both users get the paper trade
 
 
 def test_no_signal_when_strategy_returns_zero():
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
+    with patch('app.workers.intraday_worker.INTRADAY_SYMBOLS', ['VN30F1M']), \
+         patch('app.workers.intraday_worker.fetch_intraday_ohlcv_with_rsi', return_value=_make_records()), \
          patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
          patch('app.workers.intraday_worker.STRATEGIES', {'vol_break': _make_stub_strategy(0)}):
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111')]))
     mock_send.assert_not_called()
 
 
 def test_once_per_day_dedup_prevents_second_fire():
-    """Same symbol + strategy fires once; second poll does not re-fire."""
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
+    with patch('app.workers.intraday_worker.INTRADAY_SYMBOLS', ['VN30F1M']), \
+         patch('app.workers.intraday_worker.fetch_intraday_ohlcv_with_rsi', return_value=_make_records()), \
          patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
          patch('app.workers.intraday_worker.STRATEGIES', {'vol_break': _make_stub_strategy(1)}):
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
-    assert mock_send.call_count == 1  # fired only on first poll
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111')]))
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111')]))
+    assert mock_send.call_count == 1
 
 
-def test_skips_empty_data():
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=None), \
+def test_skips_symbol_with_no_data():
+    with patch('app.workers.intraday_worker.INTRADAY_SYMBOLS', ['VN30F1M']), \
+         patch('app.workers.intraday_worker.fetch_intraday_ohlcv_with_rsi', return_value=None), \
          patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111')]))
     mock_send.assert_not_called()
 
 
+def test_both_futures_symbols_are_scanned():
+    fetch_calls = []
+
+    def fake_fetch(symbol):
+        fetch_calls.append(symbol)
+        return _make_records()
+
+    with patch('app.workers.intraday_worker.fetch_intraday_ohlcv_with_rsi', side_effect=fake_fetch), \
+         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock), \
+         patch('app.workers.intraday_worker.STRATEGIES', {'vol_break': _make_stub_strategy(0)}):
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111')]))
+    assert set(fetch_calls) == {'VN30F1M', 'VN100F1M'}
+
+
 def test_daily_strategies_ignored_by_intraday_worker():
-    """Strategies with timeframe='daily' must not run in intraday_worker."""
     from app.algorithms.base import BaseStrategy
 
     class DailyStub(BaseStrategy):
@@ -107,8 +126,9 @@ def test_daily_strategies_ignored_by_intraday_worker():
             df['signal'] = 1
             return df
 
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
+    with patch('app.workers.intraday_worker.INTRADAY_SYMBOLS', ['VN30F1M']), \
+         patch('app.workers.intraday_worker.fetch_intraday_ohlcv_with_rsi', return_value=_make_records()), \
          patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
          patch('app.workers.intraday_worker.STRATEGIES', {'daily_strat': DailyStub}):
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111')]))
     mock_send.assert_not_called()

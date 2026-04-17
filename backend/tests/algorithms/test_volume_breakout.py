@@ -27,7 +27,7 @@ def test_volume_breakout_has_exit_rules():
     assert rules["eod_close"] is True
 
 def test_volume_breakout_has_display_name():
-    assert VolumeBreakoutStrategy.display_name == "Volume Breakout"
+    assert VolumeBreakoutStrategy.display_name == "Volume Breakout (Futures)"
 
 def test_volume_breakout_buy_signal_on_price_and_volume_spike():
     closes = [100.0] * 25

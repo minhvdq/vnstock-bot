@@ -5,6 +5,7 @@ from unittest.mock import patch, AsyncMock
 from app.services.signal_service import (
     build_symbol_map,
     fetch_ohlcv_with_rsi,
+    fetch_intraday_ohlcv_with_rsi,
     format_signal_message,
     send_signal,
 )
@@ -131,3 +132,71 @@ def test_send_signal_rate_limit_delay():
         asyncio.run(send_signal(['111', '222'], 'VGI', 'bearish', 'Intraday', 24500.0, '14:32'))
     assert mock_sleep.call_count == 2
     mock_sleep.assert_called_with(0.05)
+
+
+# ── fetch_intraday_ohlcv_with_rsi ─────────────────────────────────────────────
+
+def _make_tick_df(n: int = 60, price: float = 1250.0) -> pd.DataFrame:
+    """Simulate KBS tick data: time, price, volume columns."""
+    times = pd.date_range('2024-01-01 09:00', periods=n, freq='1min')
+    return pd.DataFrame({
+        'time': times,
+        'price': [price] * n,
+        'volume': [100] * n,
+        'match_type': ['M'] * n,
+        'id': range(n),
+    })
+
+
+@patch('app.services.signal_service.talib')
+@patch('app.services.signal_service.Quote')
+def test_fetch_intraday_returns_none_when_all_sources_empty(mock_quote_cls, mock_talib):
+    mock_quote_cls.return_value.intraday.return_value = pd.DataFrame()
+    assert fetch_intraday_ohlcv_with_rsi('VN30F1M') is None
+
+
+@patch('app.services.signal_service.talib')
+@patch('app.services.signal_service.Quote')
+def test_fetch_intraday_resamples_to_1min_bars(mock_quote_cls, mock_talib):
+    mock_quote_cls.return_value.intraday.return_value = _make_tick_df(60)
+    mock_talib.RSI.return_value = pd.Series([50.0] * 60)
+    result = fetch_intraday_ohlcv_with_rsi('VN30F1M')
+    assert result is not None
+    assert all('RSI' in r for r in result)
+    assert result[0]['close'] == 1250.0
+    assert result[0]['open'] == 1250.0
+
+
+@patch('app.services.signal_service.talib')
+@patch('app.services.signal_service.Quote')
+def test_fetch_intraday_returns_none_after_rsi_warmup_drops_all(mock_quote_cls, mock_talib):
+    mock_quote_cls.return_value.intraday.return_value = _make_tick_df(5)
+    mock_talib.RSI.return_value = pd.Series([float('nan')] * 5)
+    assert fetch_intraday_ohlcv_with_rsi('VN30F1M') is None
+
+
+@patch('app.services.signal_service.talib')
+@patch('app.services.signal_service.Quote')
+def test_fetch_intraday_returns_none_on_unexpected_columns(mock_quote_cls, mock_talib):
+    df = pd.DataFrame({'foo': [1, 2, 3], 'bar': [4, 5, 6]})
+    mock_quote_cls.return_value.intraday.return_value = df
+    assert fetch_intraday_ohlcv_with_rsi('VN30F1M') is None
+
+
+@patch('app.services.signal_service.talib')
+@patch('app.services.signal_service.Quote')
+def test_fetch_intraday_falls_back_to_second_source(mock_quote_cls, mock_talib):
+    """KBS returns empty → falls back to VCI."""
+    call_count = [0]
+
+    def side_effect(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return pd.DataFrame()
+        return _make_tick_df(60)
+
+    mock_quote_cls.return_value.intraday.side_effect = side_effect
+    mock_talib.RSI.return_value = pd.Series([50.0] * 60)
+    result = fetch_intraday_ohlcv_with_rsi('VN30F1M')
+    assert result is not None
+    assert call_count[0] == 2
