@@ -71,3 +71,37 @@ def test_run_backtest_uses_default_dates_when_omitted(mock_quote_cls, mock_talib
     assert isinstance(result, BacktestResult)
     call_kwargs = mock_quote_cls.return_value.history.call_args.kwargs
     assert 'start' in call_kwargs and 'end' in call_kwargs
+
+
+@patch('app.services.backtest_service.Quote')
+def test_run_backtest_daily_strategy_uses_1d_interval(mock_quote_cls):
+    """Daily strategies (ema_macd, donchian_breakout) fetch '1D' candles."""
+    mock_quote_cls.return_value.history.return_value = _daily_df(60)
+
+    result = run_backtest('VGI', 'ema_macd', '2024-01-01', '2024-12-31')
+
+    assert isinstance(result, BacktestResult)
+    call_kwargs = mock_quote_cls.return_value.history.call_args.kwargs
+    assert call_kwargs['interval'] == '1D'
+
+
+@patch('app.services.backtest_service.Quote')
+def test_run_backtest_intraday_strategy_uses_5m_interval(mock_quote_cls):
+    """Volume Breakout (intraday) fetches '5m' candles."""
+    mock_quote_cls.return_value.history.return_value = _daily_df(100)
+
+    result = run_backtest('VGI', 'volume_breakout', '2024-01-01', '2024-01-31')
+
+    assert isinstance(result, BacktestResult)
+    call_kwargs = mock_quote_cls.return_value.history.call_args.kwargs
+    assert call_kwargs['interval'] == '5m'
+
+
+@patch('app.services.backtest_service.Quote')
+def test_run_backtest_donchian_strategy_returns_result(mock_quote_cls):
+    mock_quote_cls.return_value.history.return_value = _daily_df(60)
+
+    result = run_backtest('VGI', 'donchian_breakout', '2024-01-01', '2024-12-31')
+
+    assert isinstance(result, BacktestResult)
+    assert result.strategy == 'DonchianStrategy'

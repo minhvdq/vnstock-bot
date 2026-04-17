@@ -1,6 +1,13 @@
 import { useState } from 'react'
-import { Input, Button, Spin, Alert, Statistic, Table } from 'antd'
+import { Input, Button, Spin, Alert, Statistic, Table, Select } from 'antd'
 import { runBacktest } from '../services/backtest'
+
+const STRATEGY_OPTIONS = [
+  { value: 'rsi_divergence',    label: 'RSI Divergence' },
+  { value: 'ema_macd',          label: 'EMA + MACD' },
+  { value: 'donchian_breakout', label: 'Donchian Breakout' },
+  { value: 'volume_breakout',   label: 'Volume Breakout (Intraday 5-min)' },
+]
 
 const TRADE_COLUMNS = [
   { title: 'Date', dataIndex: 'date', key: 'date' },
@@ -36,16 +43,19 @@ const TRADE_COLUMNS = [
 
 export default function Backtest() {
   const [symbol, setSymbol] = useState('')
+  const [strategy, setStrategy] = useState('rsi_divergence')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+
+  const selectedLabel = STRATEGY_OPTIONS.find(o => o.value === strategy)?.label ?? strategy
 
   const handleRun = () => {
     if (!symbol.trim()) return
     setLoading(true)
     setResult(null)
     setError(null)
-    runBacktest(symbol.trim())
+    runBacktest(symbol.trim(), strategy)
       .then(data => setResult(data))
       .catch(err => setError(err.response?.data?.detail || 'Backtest failed'))
       .finally(() => setLoading(false))
@@ -53,9 +63,16 @@ export default function Backtest() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <h4 className="mb-4">Backtest — RSI Divergence</h4>
+      <h4 className="mb-4">Backtest — {selectedLabel}</h4>
 
-      <div className="d-flex gap-2 mb-4" style={{ maxWidth: 400 }}>
+      <div className="d-flex gap-2 mb-4" style={{ maxWidth: 560 }}>
+        <Select
+          value={strategy}
+          onChange={val => { setStrategy(val); setResult(null); setError(null) }}
+          options={STRATEGY_OPTIONS}
+          disabled={loading}
+          style={{ width: 260 }}
+        />
         <Input
           placeholder="Symbol (e.g. VGI)"
           value={symbol}

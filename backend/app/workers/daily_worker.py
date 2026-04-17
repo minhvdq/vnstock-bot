@@ -41,7 +41,15 @@ async def _run_daily_check(get_users=get_all_users) -> None:
 
     daily_strategies = {k: v for k, v in STRATEGIES.items() if v.timeframe == "daily"}
 
-    for symbol, chat_ids in symbol_to_chat_ids.items():
+    print(f'[daily] running check for {today} | {len(users)} users | '
+          f'{len(symbol_to_user_ids)} symbols | '
+          f'{len(daily_strategies)} daily strategies: {list(daily_strategies)}')
+
+    if not symbol_to_user_ids:
+        print('[daily] no symbols to scan — watchlists empty')
+
+    # Iterate over ALL symbols from all users (not just Telegram-connected users)
+    for symbol, user_ids in symbol_to_user_ids.items():
         try:
             records_list = fetch_ohlcv_with_rsi(symbol, '1D', start, today)
             if not records_list:
@@ -55,29 +63,36 @@ async def _run_daily_check(get_users=get_all_users) -> None:
                     last_signal = int(df_signals.iloc[-1].get('signal', 0))
                     price = float(records_list[-1]['close'])
                     signal_time = datetime.now(ICT).strftime('%H:%M')
+                    chat_ids = symbol_to_chat_ids.get(symbol, [])
+
+                    print(f'[daily] {symbol}/{strategy_name}: '
+                          f'bars={len(records_list)} last_signal={last_signal} price={price:,.0f}')
 
                     if last_signal == 1:
+                        print(f'[daily] SIGNAL BUY {symbol} @ {price:,.0f} [{strategy_name}] '
+                              f'-> {len(chat_ids)} telegram, {len(user_ids)} paper-trade users')
                         await send_signal(
                             chat_ids, symbol, 'bullish', 'Daily',
                             price, signal_time, StrategyClass.display_name,
                         )
-                        for user_id in symbol_to_user_ids.get(symbol, []):
+                        for user_id in user_ids:
                             try:
                                 await paper_trading_service.on_signal(
                                     user_id=user_id, symbol=symbol,
                                     entry_price=price, strategy_name=strategy_name,
                                 )
                             except Exception as e:
-                                print(f'Paper trading on_signal error ({strategy_name}) '
+                                print(f'[daily] paper on_signal error ({strategy_name}) '
                                       f'user {user_id}/{symbol}: {e}')
 
                     elif last_signal == -1:
+                        print(f'[daily] SIGNAL SELL {symbol} [{strategy_name}]')
                         await send_signal(
                             chat_ids, symbol, 'bearish', 'Daily',
                             price, signal_time, StrategyClass.display_name,
                         )
                 except Exception as e:
-                    print(f'Daily worker strategy error ({strategy_name}/{symbol}): {e}')
+                    print(f'[daily] strategy error ({strategy_name}/{symbol}): {e}')
 
         except Exception as e:
             print(f'Daily worker error for {symbol}: {e}')
@@ -86,12 +101,16 @@ async def _run_daily_check(get_users=get_all_users) -> None:
 async def daily_worker(get_users=get_all_users) -> None:
     """Background task: fire once daily at 3:05 PM ICT indefinitely."""
     while True:
-        await asyncio.sleep(_seconds_until_next_signal())
+        secs = _seconds_until_next_signal()
+        next_run = datetime.now(ICT) + timedelta(seconds=secs)
+        print(f'[daily] next run at {next_run.strftime("%H:%M:%S")} ICT '
+              f'(in {secs/60:.1f} min)')
+        await asyncio.sleep(secs)
         try:
             await _run_daily_check(get_users)
         except (OperationalError, DisconnectionError) as e:
-            print(f'Daily worker DB error: {e}')
+            print(f'[daily] DB error: {e}')
             await asyncio.sleep(60)
             continue
         except Exception as e:
-            print(f'Daily worker error: {e}')
+            print(f'[daily] error: {e}')

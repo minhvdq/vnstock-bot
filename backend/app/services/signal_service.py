@@ -22,6 +22,9 @@ def build_symbol_map(users: list) -> dict[str, list[str]]:
     return result
 
 
+_INTRADAY_SOURCES = ['VCI', 'TCBS']  # fallback chain for non-daily intervals
+
+
 def fetch_ohlcv_with_rsi(
     symbol: str,
     interval: str,
@@ -31,17 +34,39 @@ def fetch_ohlcv_with_rsi(
     """
     Fetch OHLCV via vnstock, compute RSI via talib, drop NaN rows.
     Returns list[dict] with RSI field, or None if data is empty/insufficient.
-    Both intraday and daily workers use this for a consistent data pipeline.
+
+    For intraday intervals, tries each source in _INTRADAY_SOURCES in order
+    since VCI may reject requests from non-VN IPs.
     """
-    df: pd.DataFrame = Quote(symbol=symbol, source='VCI').history(
-        start=start, end=end, interval=interval
-    )
+    sources = _INTRADAY_SOURCES if interval != '1D' else ['VCI']
+
+    df: pd.DataFrame | None = None
+    for source in sources:
+        try:
+            result = Quote(symbol=symbol, source=source).history(
+                start=start, end=end, interval=interval
+            )
+            if result is not None and not result.empty:
+                df = result
+                if source != 'VCI':
+                    print(f'[fetch] {symbol} {interval}: VCI empty, using {source}')
+                break
+            else:
+                print(f'[fetch] {symbol} {interval} ({start}→{end}): {source} returned empty/None')
+        except Exception as e:
+            print(f'[fetch] {symbol} {interval}: {source} exception: {e}')
+
     if df is None or df.empty:
         return None
+
+    raw_count = len(df)
     df['RSI'] = talib.RSI(df['close'], timeperiod=14)
     df = df.dropna(subset=['RSI']).reset_index(drop=True)
+
     if len(df) < 2:
+        print(f'[fetch] {symbol} {interval}: only {len(df)}/{raw_count} bars after RSI warmup')
         return None
+
     return df.to_dict(orient='records')
 
 

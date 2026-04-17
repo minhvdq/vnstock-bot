@@ -46,7 +46,8 @@ def _close_trade(trade: PaperTrade, exit_price: float, reason: ExitReason, db) -
 
     portfolio = db.query(PaperPortfolio).filter(PaperPortfolio.user_id == trade.user_id).first()
     if portfolio:
-        portfolio.available_cash += trade.position_value
+        # Return actual exit proceeds (entry cost + P&L), not just entry cost
+        portfolio.available_cash += trade.position_value + pnl_amount
 
 
 async def on_signal(
@@ -80,7 +81,8 @@ async def on_signal(
             PaperTrade.status == TradeStatus.open,
         ).count()
         if open_count >= MAX_POSITIONS:
-            print(f"Paper trading: user {user_id} has {open_count} open positions, skipping {symbol}")
+            print(f"[paper] SKIP {symbol}/{strategy_name} user={user_id}: "
+                  f"max positions reached ({open_count}/{MAX_POSITIONS})")
             return None
 
         open_positions_value = db.query(PaperTrade).filter(
@@ -92,13 +94,22 @@ async def on_signal(
 
         quantity = math.floor(portfolio_total * pos_size_pct / entry_price)
         if quantity < 1:
-            print(f"Paper trading: quantity < 1 for {symbol} @ {entry_price}, skipping")
+            print(f"[paper] SKIP {symbol}/{strategy_name} user={user_id}: "
+                  f"quantity<1 (portfolio={portfolio_total:,.0f} "
+                  f"pos_size={pos_size_pct*100:.0f}% price={entry_price:,.0f})")
             return None
         position_value = int(entry_price * quantity)
 
         if portfolio.available_cash < position_value:
-            print(f"Paper trading: insufficient cash for {symbol}, skipping")
+            print(f"[paper] SKIP {symbol}/{strategy_name} user={user_id}: "
+                  f"insufficient cash (have={portfolio.available_cash:,.0f} "
+                  f"need={position_value:,.0f})")
             return None
+
+        print(f"[paper] OPEN {symbol}/{strategy_name} user={user_id} "
+              f"qty={quantity} @ {entry_price:,.0f} "
+              f"value={position_value:,.0f} "
+              f"sl={entry_price * sl_pct:,.0f} tp={entry_price * tp_pct:,.0f}")
 
         portfolio.available_cash -= position_value
 
@@ -145,6 +156,7 @@ async def check_positions() -> None:
     db = SessionLocal()
     try:
         open_trades = db.query(PaperTrade).filter(PaperTrade.status == TradeStatus.open).all()
+        print(f"[paper] check_positions: {len(open_trades)} open trades")
         if not open_trades:
             return
 
@@ -185,8 +197,15 @@ async def check_positions() -> None:
                     reason = ExitReason.time_stop
 
             if reason:
+                print(f"[paper] CLOSE {trade.symbol} user={trade.user_id} "
+                      f"reason={reason.value} price={current_price:,.0f} "
+                      f"entry={trade.entry_price:,.0f}")
                 _close_trade(trade, current_price, reason, db)
                 closed_trades.append((trade, reason))
+            else:
+                print(f"[paper] HOLD {trade.symbol} user={trade.user_id} "
+                      f"price={current_price:,.0f} "
+                      f"sl={trade.stop_loss_price:,.0f} tp={trade.take_profit_price:,.0f}")
 
         if closed_trades:
             db.commit()
