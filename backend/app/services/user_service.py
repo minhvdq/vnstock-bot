@@ -214,16 +214,13 @@ def define_user_chatid(user_id: int, chat_id: str):
     try:
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"User with id {user_id} not found"
-            )
+            raise ValueError(f"User with id {user_id} not found")
         user.chat_id = chat_id
         db.commit()
         db.refresh(user)
         return user
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error assigning chat id to user {user_id}: {str(e)}"
-        )
+        db.rollback()
+        raise
+    finally:
+        db.close()

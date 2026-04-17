@@ -41,18 +41,21 @@ async def startup_event():
 
 @app.post("/webhook")
 async def telegram_webhook(update: dict):
-    if "message" not in update: return {"ok": True}        
+    if "message" not in update:
+        return {"ok": True}
 
     text = update["message"].get("text", "")
-    chat_id = update["message"]["chat"]["id"]
+    chat_id = str(update["message"]["chat"]["id"])
+
     if text.startswith("/start "):
-        user_id = text.split(" ")[1]   
-        # try:
-        define_user_chatid(user_id=user_id, chat_id=chat_id)
-        await send_message(chat_id=chat_id, text=f"Successfully define chat id for user {user_id}")
-        # return {"ok": True}
-        # except Exception as e:
-        #     raise HT
+        try:
+            user_id = int(text.split(" ")[1])
+            define_user_chatid(user_id=user_id, chat_id=chat_id)
+            await send_message(chat_id=chat_id, text="✅ Telegram connected! You will now receive stock signals.")
+        except Exception as e:
+            print(f"Webhook /start error: {e}")
+            await send_message(chat_id=chat_id, text="❌ Failed to connect. Please try the link again.")
+
     return {"ok": True}
 
 @app.get("/test_telegram")
