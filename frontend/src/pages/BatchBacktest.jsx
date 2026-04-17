@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Button, Spin, Alert, Table, Tag, Statistic, Select } from 'antd'
-import { runBatchBacktest, getBatchResults } from '../services/batchBacktest'
+import { useState, useEffect, useRef } from 'react'
+import { Button, Spin, Alert, Table, Tag, Progress, Select } from 'antd'
+import { startBatchBacktest, getBatchStatus, getBatchResults } from '../services/batchBacktest'
 
 const STRATEGIES = [
   { value: 'rsi_divergence',    label: 'RSI Divergence',    color: 'blue' },
@@ -87,22 +87,55 @@ export default function BatchBacktest() {
   const [error, setError] = useState(null)
   const [period, setPeriod] = useState('2024-01-01|2025-12-31')
   const [lastRun, setLastRun] = useState(null)
+  const [jobStatus, setJobStatus] = useState(null)
+  const pollRef = useRef(null)
 
   const [start, end] = period.split('|')
 
+  // On mount: check if a job is already running, and load existing results
   useEffect(() => {
     getBatchResults(start, end)
       .then(d => { if (d.count > 0) { setResults(d.results); setLastRun(d.results[0]?.run_at) } })
       .catch(() => {})
+    getBatchStatus()
+      .then(s => { if (s.status === 'running') startPolling(start, end) })
+      .catch(() => {})
   }, [period])
+
+  // Clean up polling on unmount
+  useEffect(() => () => clearInterval(pollRef.current), [])
+
+  const startPolling = (s, e) => {
+    clearInterval(pollRef.current)
+    pollRef.current = setInterval(() => {
+      getBatchStatus().then(status => {
+        setJobStatus(status)
+        if (status.status === 'done') {
+          clearInterval(pollRef.current)
+          setLoading(false)
+          getBatchResults(s, e).then(d => {
+            setResults(d.results)
+            setLastRun(new Date().toISOString())
+          })
+        } else if (status.status === 'error') {
+          clearInterval(pollRef.current)
+          setLoading(false)
+          setError(status.error || 'Batch run failed')
+        }
+      }).catch(() => {})
+    }, 4000)
+  }
 
   const handleRun = () => {
     setLoading(true)
     setError(null)
-    runBatchBacktest(start, end)
-      .then(d => { setResults(d.results); setLastRun(new Date().toISOString()) })
-      .catch(err => setError(err.response?.data?.detail || 'Batch run failed'))
-      .finally(() => setLoading(false))
+    setJobStatus({ status: 'running' })
+    startBatchBacktest(start, end)
+      .then(() => startPolling(start, end))
+      .catch(err => {
+        setLoading(false)
+        setError(err.response?.data?.detail || 'Failed to start batch')
+      })
   }
 
   const stats = summaryStats(results)
@@ -135,9 +168,21 @@ export default function BatchBacktest() {
       {error && <Alert type="error" message={error} showIcon className="mb-4" style={{ maxWidth: 500 }} />}
 
       {loading && (
-        <div className="d-flex align-items-center gap-3 mb-4">
-          <Spin />
-          <span className="text-muted">Fetching 20 symbols from vnstock, computing signals…</span>
+        <div className="mb-4" style={{ maxWidth: 420 }}>
+          <div className="d-flex align-items-center gap-2 mb-2">
+            <Spin size="small" />
+            <span className="text-muted" style={{ fontSize: 13 }}>
+              Running 20 symbols × 3 strategies in parallel…
+            </span>
+          </div>
+          {jobStatus?.total > 0 && (
+            <Progress
+              percent={Math.round(((jobStatus.ok + jobStatus.failed) / jobStatus.total) * 100)}
+              size="small"
+              status="active"
+              format={p => `${jobStatus.ok + jobStatus.failed}/${jobStatus.total}`}
+            />
+          )}
         </div>
       )}
 
