@@ -20,76 +20,86 @@ class _User:
 
 @pytest.fixture(autouse=True)
 def patch_paper_trading():
-    """Prevent paper trading service from touching the database in unit tests."""
     with patch('app.workers.daily_worker.paper_trading_service.on_signal', new_callable=AsyncMock):
         yield
-
-
-def _mock_divergence(prefix=5, suffix=20, kind='bearish'):
-    return {'prefixIndex': prefix, 'suffixIndex': suffix, 'type': kind}
 
 
 def _make_records(n=25, close=24500.0):
     return [
         {'time': f'2024-01-{i+1:02d}', 'open': close, 'high': close + 1,
-         'low': close - 1, 'close': close, 'RSI': 50.0}
+         'low': close - 1, 'close': close, 'volume': 1000, 'RSI': 50.0}
         for i in range(n)
     ]
+
+
+def _make_stub_strategy(signal: int):
+    """Return a strategy class whose generate_signals always returns last bar = signal."""
+    import pandas as pd
+    from app.algorithms.base import BaseStrategy
+
+    class StubStrategy(BaseStrategy):
+        timeframe = "daily"
+        display_name = "Stub"
+        exit_rules = {"stop_loss_pct": -0.07, "take_profit_pct": 0.15, "max_days": 30, "eod_close": False}
+
+        def generate_signals(self, df):
+            df = df.copy()
+            df['signal'] = 0
+            if len(df) > 0:
+                df.iloc[-1, df.columns.get_loc('signal')] = signal
+            return df
+
+    return StubStrategy
 
 
 # ── _seconds_until_next_signal ────────────────────────────────────────────────
 
 def test_seconds_until_next_signal_before_cutoff():
-    # 2:00 PM ICT → target is 3:05 PM today = 65 minutes away
     fake_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=ICT)
     with patch('app.workers.daily_worker.datetime') as mock_dt:
         mock_dt.now.return_value = fake_now
         secs = dw._seconds_until_next_signal()
-    assert 3600 < secs < 3960  # between 60 and 66 minutes
+    assert 3600 < secs < 3960
 
 
 def test_seconds_until_next_signal_after_cutoff():
-    # 3:06 PM ICT → target is 3:05 PM tomorrow = ~23h59m away
     fake_now = datetime(2024, 1, 15, 15, 6, 0, tzinfo=ICT)
     with patch('app.workers.daily_worker.datetime') as mock_dt:
         mock_dt.now.return_value = fake_now
         secs = dw._seconds_until_next_signal()
-    assert 86300 < secs < 86400  # ~23h59m
+    assert 86300 < secs < 86400
 
 
 def test_seconds_until_next_signal_at_exact_cutoff():
-    # Exactly 3:05 PM ICT → now >= target → wait until tomorrow
     fake_now = datetime(2024, 1, 15, 15, 5, 0, tzinfo=ICT)
     with patch('app.workers.daily_worker.datetime') as mock_dt:
         mock_dt.now.return_value = fake_now
         secs = dw._seconds_until_next_signal()
-    assert secs > 86000  # ~24 hours
+    assert secs > 86000
 
 
 # ── _run_daily_check ──────────────────────────────────────────────────────────
 
-def test_fires_signal_on_divergence():
+def test_fires_signal_when_strategy_returns_buy():
     with patch('app.workers.daily_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.daily_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send:
+         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.daily_worker.STRATEGIES', {'test_strat': _make_stub_strategy(signal=1)}):
         asyncio.run(dw._run_daily_check(get_users=lambda: [_User('111', ['VGI'])]))
     mock_send.assert_called_once()
 
 
-def test_no_signal_when_no_divergence():
+def test_no_signal_when_strategy_returns_zero():
     with patch('app.workers.daily_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.daily_worker._has_divergence_at', return_value=None), \
-         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send:
+         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.daily_worker.STRATEGIES', {'test_strat': _make_stub_strategy(signal=0)}):
         asyncio.run(dw._run_daily_check(get_users=lambda: [_User('111', ['VGI'])]))
     mock_send.assert_not_called()
 
 
-def test_skips_empty_or_insufficient_data():
+def test_skips_empty_data():
     with patch('app.workers.daily_worker.fetch_ohlcv_with_rsi', return_value=None), \
-         patch('app.workers.daily_worker._has_divergence_at') as mock_div, \
          patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send:
         asyncio.run(dw._run_daily_check(get_users=lambda: [_User('111', ['VGI'])]))
-    mock_div.assert_not_called()
     mock_send.assert_not_called()
 
 
@@ -97,8 +107,8 @@ def test_continues_on_symbol_error():
     records = _make_records()
     with patch('app.workers.daily_worker.fetch_ohlcv_with_rsi',
                side_effect=[Exception('API error'), records]), \
-         patch('app.workers.daily_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send:
+         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.daily_worker.STRATEGIES', {'test_strat': _make_stub_strategy(signal=1)}):
         users = [_User('111', ['VGI', 'VNM'])]
         asyncio.run(dw._run_daily_check(get_users=lambda: users))
     assert mock_send.call_count == 1
@@ -106,8 +116,8 @@ def test_continues_on_symbol_error():
 
 def test_injectable_get_users():
     with patch('app.workers.daily_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.daily_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send:
+         patch('app.workers.daily_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.daily_worker.STRATEGIES', {'test_strat': _make_stub_strategy(signal=1)}):
         asyncio.run(dw._run_daily_check(get_users=lambda: [_User('999', ['VGI'])]))
     chat_ids = mock_send.call_args[0][0]
     assert '999' in chat_ids

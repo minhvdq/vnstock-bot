@@ -1,23 +1,20 @@
 from __future__ import annotations
 import asyncio
-from datetime import date, datetime, timezone, timedelta
+import pandas as pd
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.exc import OperationalError, DisconnectionError
 from app.services.user_service import get_all_users
 from app.services.signal_service import build_symbol_map, fetch_ohlcv_with_rsi, send_signal
-from app.algorithms.rsi_divergence import _has_divergence_at
 from app.services import paper_trading_service
+from app.algorithms import STRATEGIES
 
 ICT = timezone(timedelta(hours=7))
 SIGNAL_HOUR = 15
 SIGNAL_MINUTE = 5
+DATA_LOOKBACK_DAYS = 200  # enough for EMA(50) to stabilize
 
 
 def _seconds_until_next_signal() -> float:
-    """
-    Returns seconds until next 3:05 PM ICT.
-    If now >= 3:05 PM ICT today, returns seconds until 3:05 PM tomorrow.
-    Exact 3:05 PM counts as past (fires tomorrow, never twice today).
-    """
     now = datetime.now(ICT)
     target = now.replace(hour=SIGNAL_HOUR, minute=SIGNAL_MINUTE, second=0, microsecond=0)
     if now >= target:
@@ -26,7 +23,6 @@ def _seconds_until_next_signal() -> float:
 
 
 def _build_symbol_user_ids_map(users) -> dict[str, list[int]]:
-    """Returns {symbol: [user_id, ...]} for ALL users (regardless of chat_id)."""
     result: dict[str, list[int]] = {}
     for user in users:
         for symbol in user.stocks:
@@ -35,33 +31,54 @@ def _build_symbol_user_ids_map(users) -> dict[str, list[int]]:
 
 
 async def _run_daily_check(get_users=get_all_users) -> None:
-    """One daily signal check. Testable entry point for the worker loop."""
+    """Run all daily strategies for every symbol in all users' watchlists."""
     users = get_users()
     symbol_to_chat_ids = build_symbol_map(users)
     symbol_to_user_ids = _build_symbol_user_ids_map(users)
     ict_today = datetime.now(ICT).date()
     today = ict_today.isoformat()
-    start = (ict_today - timedelta(days=90)).isoformat()
+    start = (ict_today - timedelta(days=DATA_LOOKBACK_DAYS)).isoformat()
+
+    daily_strategies = {k: v for k, v in STRATEGIES.items() if v.timeframe == "daily"}
 
     for symbol, chat_ids in symbol_to_chat_ids.items():
         try:
             records_list = fetch_ohlcv_with_rsi(symbol, '1D', start, today)
             if not records_list:
                 continue
-            divergence = _has_divergence_at(records_list, len(records_list) - 1)
-            if divergence is None:
-                continue
-            price = float(records_list[-1]['close'])
-            signal_time = datetime.now(ICT).strftime('%H:%M')
-            await send_signal(chat_ids, symbol, divergence['type'], 'Daily', price, signal_time)
+            df = pd.DataFrame(records_list)
 
-            # Paper trading: open position on bullish divergence
-            if divergence['type'] == 'bullish':
-                for user_id in symbol_to_user_ids.get(symbol, []):
-                    try:
-                        await paper_trading_service.on_signal(user_id=user_id, symbol=symbol, entry_price=price)
-                    except Exception as e:
-                        print(f'Paper trading on_signal error for user {user_id} / {symbol}: {e}')
+            for strategy_name, StrategyClass in daily_strategies.items():
+                try:
+                    strategy = StrategyClass()
+                    df_signals = strategy.generate_signals(df.copy())
+                    last_signal = int(df_signals.iloc[-1].get('signal', 0))
+                    price = float(records_list[-1]['close'])
+                    signal_time = datetime.now(ICT).strftime('%H:%M')
+
+                    if last_signal == 1:
+                        await send_signal(
+                            chat_ids, symbol, 'bullish', 'Daily',
+                            price, signal_time, StrategyClass.display_name,
+                        )
+                        for user_id in symbol_to_user_ids.get(symbol, []):
+                            try:
+                                await paper_trading_service.on_signal(
+                                    user_id=user_id, symbol=symbol,
+                                    entry_price=price, strategy_name=strategy_name,
+                                )
+                            except Exception as e:
+                                print(f'Paper trading on_signal error ({strategy_name}) '
+                                      f'user {user_id}/{symbol}: {e}')
+
+                    elif last_signal == -1:
+                        await send_signal(
+                            chat_ids, symbol, 'bearish', 'Daily',
+                            price, signal_time, StrategyClass.display_name,
+                        )
+                except Exception as e:
+                    print(f'Daily worker strategy error ({strategy_name}/{symbol}): {e}')
+
         except Exception as e:
             print(f'Daily worker error for {symbol}: {e}')
 

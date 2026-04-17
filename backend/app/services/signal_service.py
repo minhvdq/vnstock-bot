@@ -51,22 +51,14 @@ def format_signal_message(
     timeframe: str,
     price: float,
     signal_time: str,
+    strategy_name: str = 'RSI Divergence',
 ) -> str:
-    """
-    Format a Telegram signal message.
-
-    Example:
-        🔴 VGI — SELL signal
-        Strategy: RSI Divergence (Bearish) | Intraday
-        Price: 24,500 VND
-        Time: 14:32 ICT
-    """
     emoji = '🔴' if divergence_type == 'bearish' else '🟢'
     action = 'SELL' if divergence_type == 'bearish' else 'BUY'
     direction = 'Bearish' if divergence_type == 'bearish' else 'Bullish'
     return (
         f"{emoji} {symbol} — {action} signal\n"
-        f"Strategy: RSI Divergence ({direction}) | {timeframe}\n"
+        f"Strategy: {strategy_name} ({direction}) | {timeframe}\n"
         f"Price: {price:,.0f} VND\n"
         f"Time: {signal_time} ICT"
     )
@@ -79,16 +71,11 @@ async def send_signal(
     timeframe: str,
     price: float,
     signal_time: str,
+    strategy_name: str = 'RSI Divergence',
 ) -> None:
-    """
-    Format the signal message and send to each chat_id.
-    50ms delay between sends to stay under Telegram's rate limit.
-    If one send fails, logs the error and continues to remaining chat_ids.
-    No-op if chat_ids is empty.
-    """
     if not chat_ids:
         return
-    message = format_signal_message(symbol, divergence_type, timeframe, price, signal_time)
+    message = format_signal_message(symbol, divergence_type, timeframe, price, signal_time, strategy_name)
     for chat_id in chat_ids:
         try:
             await send_message(chat_id=chat_id, text=message)
