@@ -38,12 +38,11 @@ def get_by_id(id: str) -> UserResponse | None:
         if not user:
             return None
         return UserResponse(
-            id= user.id,
+            id=user.id,
             name=user.name,
             email=user.email,
-            chat_id=user.chat_id,
+            chat_id=user.chat_id or '',
             phone=user.phone,
-            hash_password=user.password_hash,
             stocks=[str(stock.symbol) for stock in user.stocks]
         )
     except Exception as e:
