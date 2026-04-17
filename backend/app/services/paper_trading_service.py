@@ -181,7 +181,7 @@ async def check_positions() -> None:
             if reason is None and eod_close:
                 entry_ict = trade.entry_time.replace(tzinfo=timezone.utc).astimezone(ICT)
                 if (entry_ict.date() == now_ict.date()
-                        and now_ict.hour >= 14 and now_ict.minute >= 45):
+                        and (now_ict.hour, now_ict.minute) >= (14, 45)):
                     reason = ExitReason.time_stop
 
             if reason:
