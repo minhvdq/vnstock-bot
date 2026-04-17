@@ -3,7 +3,7 @@ import { message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import customStorage from '../utils/customStorage';
 import loginService from '../services/login';
-import { backendBase } from '../utils/homeUrl';
+import { backendBase, frontendBase } from '../utils/homeUrl';
 
 export default function Authentication({ curUser, setCurUser }) {
   const [email, setEmail] = useState("");
