@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Input, Button, message, Tag, Spin } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { getMe, addStock, removeStock, getTelegramLink, getCompanies } from '../services/user'
@@ -12,11 +12,7 @@ export default function Home({ curUser }) {
   const [loading, setLoading] = useState(true)
   const [companiesLoading, setCompaniesLoading] = useState(true)
 
-  useEffect(() => {
-    if (!curUser) {
-      navigate('/authen')
-      return
-    }
+  const fetchUser = useCallback(() => {
     getMe()
       .then(me => {
         setUser(me)
@@ -24,12 +20,28 @@ export default function Home({ curUser }) {
       })
       .catch(() => message.error('Failed to load user data'))
       .finally(() => setLoading(false))
+  }, [])
 
+  useEffect(() => {
+    if (!curUser) {
+      navigate('/authen')
+      return
+    }
+    fetchUser()
     getCompanies()
       .then(cps => setCompanies(cps))
       .catch(() => message.error('Failed to load company list'))
       .finally(() => setCompaniesLoading(false))
-  }, [curUser, navigate])
+  }, [curUser, navigate, fetchUser])
+
+  // Re-fetch user when tab becomes visible (e.g. returning from Telegram)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchUser()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [fetchUser])
 
   const handleAdd = (symbol) => {
     const prev = [...watchlist]
