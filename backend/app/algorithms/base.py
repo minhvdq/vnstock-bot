@@ -31,6 +31,14 @@ class BacktestResult:
 
 
 class BaseStrategy(ABC):
+    timeframe: str = "daily"       # "daily" | "intraday" — workers filter by this
+    display_name: str = "Strategy" # human-readable name for Telegram messages
+    exit_rules: dict = {
+        "stop_loss_pct": -0.07,    # relative to entry price, e.g. -0.07 = -7%
+        "take_profit_pct": 0.15,
+        "max_days": 30,
+        "eod_close": False,        # if True, hard-close at 14:45 VN time same day
+    }
 
     @abstractmethod
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:

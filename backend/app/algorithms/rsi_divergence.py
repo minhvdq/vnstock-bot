@@ -146,6 +146,10 @@ def _has_divergence_at(df: list, index: int) -> dict | None:
 # ── Strategy ─────────────────────────────────────────────────────────────────
 
 class RSIStrategy(BaseStrategy):
+    display_name = "RSI Divergence"
+    timeframe = "daily"
+    # exit_rules inherits defaults from BaseStrategy (-7% SL, +15% TP, 30d)
+
     """
     RSI Divergence strategy.
 
