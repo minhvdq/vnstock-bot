@@ -2,7 +2,7 @@ import asyncio
 from app.workers.intraday_worker import intraday_worker
 from app.workers.daily_worker import daily_worker
 from fastapi import FastAPI
-from app.routers import stock, company, user, auth, backtest, paper_trading
+from app.routers import stock, company, user, auth, backtest, paper_trading, batch_backtest
 from app.services.user_service import define_user_chatid
 from app.utils.telegram import send_message
 from app.services.user_service import get_all_users
@@ -11,6 +11,7 @@ from app.db.database import engine, Base
 from sqlalchemy import text
 import app.models.paper_trading   # noqa: F401 — ensure tables are registered with Base
 import app.models.intraday_bar    # noqa: F401 — ensure tables are registered with Base
+import app.models.batch_backtest  # noqa: F401 — ensure tables are registered with Base
 
 
 app = FastAPI(title="Stock Bot API")
@@ -29,6 +30,7 @@ app.include_router(user.router)
 app.include_router(auth.router)
 app.include_router(backtest.router)
 app.include_router(paper_trading.router)
+app.include_router(batch_backtest.router)
 
 @app.on_event("startup")
 async def startup_event():

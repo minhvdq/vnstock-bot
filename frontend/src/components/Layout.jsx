@@ -17,6 +17,7 @@ export default function Layout({ setCurUser }) {
         <div className="d-flex gap-3 mx-auto">
           <Link className="nav-link text-white" to="/">Watchlist</Link>
           <Link className="nav-link text-white" to="/backtest">Backtest</Link>
+          <Link className="nav-link text-white" to="/batch-backtest">Batch Backtest</Link>
           <Link className="nav-link text-white" to="/paper-trading">Paper Trading</Link>
         </div>
         <button
