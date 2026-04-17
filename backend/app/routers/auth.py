@@ -1,6 +1,7 @@
 import logging
 from fastapi import APIRouter, status, HTTPException
 from app.services.login_service import login
+from app.services.user_service import create_user
 from app.schemas.user import UserCreate
 from pydantic import BaseModel
 
@@ -22,3 +23,14 @@ def log_in(data: LoginRequest):
         return response
     except Exception as e:
         raise
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(user: UserCreate):
+    try:
+        return create_user(user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering user: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
