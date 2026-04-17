@@ -91,11 +91,12 @@ def create_user(user: UserCreate) -> UserResponse:
         
         # Convert to response schema
         return UserResponse(
+            id=db_user.id,
             name=db_user.name,
             email=db_user.email,
             phone=db_user.phone,
-            chat_id=db_user.chat_id,
-            stocks=[]  # New user has no stocks initially
+            chat_id=db_user.chat_id or '',
+            stocks=[]
         )
     except HTTPException:
         # Re-raise HTTPException without modification (finally will close db)
