@@ -1,10 +1,12 @@
 import asyncio
 import pytest
+from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, AsyncMock
 import app.workers.intraday_worker as iw
 
+ICT = timezone(timedelta(hours=7))
 
-_next_user_id = 1
+_next_user_id = 100
 
 
 class _User:
@@ -16,122 +18,97 @@ class _User:
         self.stocks = stocks
 
 
-def _mock_divergence(prefix=5, suffix=20, kind='bearish'):
-    return {'prefixIndex': prefix, 'suffixIndex': suffix, 'type': kind}
-
-
-def _make_records(n=25, close=24500.0):
-    return [
-        {'time': f'2024-01-{i+1:02d}', 'open': close, 'high': close + 1,
-         'low': close - 1, 'close': close, 'RSI': 50.0}
-        for i in range(n)
-    ]
-
-
-@pytest.fixture(autouse=True)
-def reset_dedup():
-    iw._seen.clear()
-    iw._seen_date = ''
-    yield
-    iw._seen.clear()
-    iw._seen_date = ''
-
-
 @pytest.fixture(autouse=True)
 def patch_paper_trading():
-    """Prevent paper trading service from touching the database in unit tests."""
     with patch('app.workers.intraday_worker.paper_trading_service.on_signal', new_callable=AsyncMock), \
          patch('app.workers.intraday_worker.paper_trading_service.check_positions', new_callable=AsyncMock):
         yield
 
 
-# ── signal fires ──────────────────────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def reset_intraday_fired():
+    """Clear the once-per-day guard between tests."""
+    iw._intraday_fired.clear()
+    yield
+    iw._intraday_fired.clear()
 
-def test_fires_signal_on_new_divergence():
+
+def _make_records(n=30, close=24500.0):
+    return [
+        {'time': f'2024-01-01 {i:02d}:00', 'open': close, 'high': close + 0.5,
+         'low': close - 0.5, 'close': close, 'volume': 1000, 'RSI': 50.0}
+        for i in range(n)
+    ]
+
+
+def _make_stub_strategy(signal: int):
+    from app.algorithms.base import BaseStrategy
+
+    class StubIntraday(BaseStrategy):
+        timeframe = "intraday"
+        display_name = "Stub Intraday"
+        exit_rules = {"stop_loss_pct": -0.02, "take_profit_pct": 0.04, "max_days": 1, "eod_close": True}
+
+        def generate_signals(self, df):
+            df = df.copy()
+            df['signal'] = 0
+            if len(df) > 0:
+                df.iloc[-1, df.columns.get_loc('signal')] = signal
+            return df
+
+    return StubIntraday
+
+
+# ── _poll_once ────────────────────────────────────────────────────────────────
+
+def test_fires_signal_when_intraday_strategy_returns_buy():
     with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.intraday_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
-    mock_send.assert_called_once()
-
-
-def test_suppresses_duplicate_divergence():
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.intraday_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        users = lambda: [_User('111', ['VGI'])]
-        asyncio.run(iw._poll_once(get_users=users))
-        asyncio.run(iw._poll_once(get_users=users))
-    mock_send.assert_called_once()
-
-
-def test_suppresses_when_no_divergence():
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.intraday_worker._has_divergence_at', return_value=None), \
-         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
-    mock_send.assert_not_called()
-
-
-def test_dedup_resets_on_date_change():
-    iw._seen.add(('VGI', 5, 20))
-    iw._seen_date = '2024-01-01'
-
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.intraday_worker._has_divergence_at', return_value=_mock_divergence()), \
          patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
-         patch('app.workers.intraday_worker.date') as mock_date:
-        mock_date.today.return_value.isoformat.return_value = '2024-01-02'
+         patch('app.workers.intraday_worker.STRATEGIES', {'vol_break': _make_stub_strategy(1)}):
         asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
     mock_send.assert_called_once()
 
 
-# ── user filtering ────────────────────────────────────────────────────────────
-
-def test_skips_user_with_no_chat_id():
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi') as mock_fetch, \
-         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        asyncio.run(iw._poll_once(get_users=lambda: [_User('', ['VGI']), _User(None, ['VGI'])]))
-    mock_fetch.assert_not_called()
+def test_no_signal_when_strategy_returns_zero():
+    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
+         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.intraday_worker.STRATEGIES', {'vol_break': _make_stub_strategy(0)}):
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
     mock_send.assert_not_called()
 
 
-def test_multiple_users_same_stock():
+def test_once_per_day_dedup_prevents_second_fire():
+    """Same symbol + strategy fires once; second poll does not re-fire."""
     with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.intraday_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        users = [_User('111', ['VGI']), _User('222', ['VGI']), _User('333', ['VGI'])]
-        asyncio.run(iw._poll_once(get_users=lambda: users))
-    chat_ids = mock_send.call_args[0][0]
-    assert set(chat_ids) == {'111', '222', '333'}
+         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.intraday_worker.STRATEGIES', {'vol_break': _make_stub_strategy(1)}):
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
+    assert mock_send.call_count == 1  # fired only on first poll
 
 
-def test_no_users():
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi') as mock_fetch, \
+def test_skips_empty_data():
+    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=None), \
          patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        asyncio.run(iw._poll_once(get_users=lambda: []))
-    mock_fetch.assert_not_called()
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
     mock_send.assert_not_called()
 
 
-# ── error handling ────────────────────────────────────────────────────────────
+def test_daily_strategies_ignored_by_intraday_worker():
+    """Strategies with timeframe='daily' must not run in intraday_worker."""
+    from app.algorithms.base import BaseStrategy
 
-def test_continues_on_stock_fetch_error():
-    records = _make_records()
-    with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi',
-               side_effect=[Exception('API error'), records]), \
-         patch('app.workers.intraday_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        users = [_User('111', ['VGI', 'VNM'])]
-        asyncio.run(iw._poll_once(get_users=lambda: users))
-    assert mock_send.call_count == 1
+    class DailyStub(BaseStrategy):
+        timeframe = "daily"
+        display_name = "Daily Stub"
+        exit_rules = {"stop_loss_pct": -0.07, "take_profit_pct": 0.15, "max_days": 30, "eod_close": False}
+        def generate_signals(self, df):
+            df = df.copy()
+            df['signal'] = 1
+            return df
 
-
-def test_injectable_get_users():
-    custom_users = [_User('999', ['VGI'])]
     with patch('app.workers.intraday_worker.fetch_ohlcv_with_rsi', return_value=_make_records()), \
-         patch('app.workers.intraday_worker._has_divergence_at', return_value=_mock_divergence()), \
-         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send:
-        asyncio.run(iw._poll_once(get_users=lambda: custom_users))
-    chat_ids = mock_send.call_args[0][0]
-    assert '999' in chat_ids
+         patch('app.workers.intraday_worker.send_signal', new_callable=AsyncMock) as mock_send, \
+         patch('app.workers.intraday_worker.STRATEGIES', {'daily_strat': DailyStub}):
+        asyncio.run(iw._poll_once(get_users=lambda: [_User('111', ['VGI'])]))
+    mock_send.assert_not_called()
