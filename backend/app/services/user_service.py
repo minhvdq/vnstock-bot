@@ -25,7 +25,7 @@ def get_all_users() -> List[UserResponse]:
             name=user.name,
             email=user.email,
             phone=user.phone,
-            chat_id=user.chat_id,
+            chat_id=user.chat_id or '',
             stocks=[str(stock.symbol) for stock in user.stocks]
         ) for user in users]
     finally:
@@ -140,7 +140,7 @@ def add_stock_to_user(user_id: int, stock_symbol: str) -> UserResponse:
                 name=user.name,
                 email=user.email,
                 phone=user.phone,
-                chat_id=user.chat_id,
+                chat_id=user.chat_id or '',
                 stocks=stocks_str
             )
 
@@ -157,7 +157,7 @@ def add_stock_to_user(user_id: int, stock_symbol: str) -> UserResponse:
             name=user.name,
             email=user.email,
             phone=user.phone,
-            chat_id=user.chat_id,
+            chat_id=user.chat_id or '',
             stocks=stocks_str
         )
     except Exception as e:
