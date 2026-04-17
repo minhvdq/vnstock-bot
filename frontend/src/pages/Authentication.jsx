@@ -3,7 +3,7 @@ import { message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import customStorage from '../utils/customStorage';
 import loginService from '../services/login';
-import { backendBase, frontendBase } from '../utils/homeUrl';
+import { backendBase } from '../utils/homeUrl';
 
 export default function Authentication({ curUser, setCurUser }) {
   const [email, setEmail] = useState("");
@@ -14,9 +14,9 @@ export default function Authentication({ curUser, setCurUser }) {
 
   useEffect(() => {
     if (curUser) {
-      window.location.href = `${frontendBase}`;
+      navigate('/')
     }
-  }, [curUser]);
+  }, [curUser, navigate]);
 
   const handleEmail = (event) => {  
     setEmail(event.target.value);
@@ -40,12 +40,11 @@ export default function Authentication({ curUser, setCurUser }) {
       setPassword('');
 
       const loginDirect = window.localStorage.getItem("loginDirect");
-
       if (loginDirect) {
         window.localStorage.removeItem("loginDirect");
         window.location.href = loginDirect;
       } else {
-        window.location.href = frontendBase;
+        navigate('/');
       }
     } catch (e) {
       console.error("Login error:", e);
