@@ -2,11 +2,13 @@ import asyncio
 from app.workers.intraday_worker import intraday_worker
 from app.workers.daily_worker import daily_worker
 from fastapi import FastAPI
-from app.routers import stock, company, user, auth, backtest
+from app.routers import stock, company, user, auth, backtest, paper_trading
 from app.services.user_service import define_user_chatid
 from app.utils.telegram import send_message
 from app.services.user_service import get_all_users
 from fastapi.middleware.cors import CORSMiddleware
+from app.db.database import engine, Base
+import app.models.paper_trading  # noqa: F401 — ensure tables are registered with Base
 
 
 app = FastAPI(title="Stock Bot API")
@@ -16,7 +18,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"], 
+    allow_headers=["*"],
 )
 
 app.include_router(stock.router)
@@ -24,10 +26,13 @@ app.include_router(company.router)
 app.include_router(user.router)
 app.include_router(auth.router)
 app.include_router(backtest.router)
+app.include_router(paper_trading.router)
 
 @app.on_event("startup")
 async def startup_event():
     try:
+        # Create paper trading tables if they don't exist
+        Base.metadata.create_all(bind=engine, checkfirst=True)
         asyncio.create_task(intraday_worker())
         asyncio.create_task(daily_worker())
         print("Workers started successfully")

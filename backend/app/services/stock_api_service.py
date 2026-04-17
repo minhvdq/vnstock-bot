@@ -1,7 +1,34 @@
-from datetime import date
+from datetime import date, timedelta
 import talib
 from vnstock import Quote
 from app.algorithms.rsi_divergence import _find_divergences
+
+
+def get_current_price(symbol: str) -> float:
+    """
+    Fetch the latest price for a symbol.
+    Tries intraday first (works during market hours); falls back to last daily close.
+    Raises ValueError if no price can be fetched.
+    """
+    quote = Quote(symbol=symbol, source='VCI')
+    try:
+        df = quote.intraday()
+        if df is not None and not df.empty and 'close' in df.columns:
+            last = float(df['close'].iloc[-1])
+            if last > 0:
+                return last
+    except Exception:
+        pass
+    # Fallback: last 5 days daily history
+    end = date.today().isoformat()
+    start = (date.today() - timedelta(days=7)).isoformat()
+    try:
+        df = quote.history(start=start, end=end, interval='1D')
+        if df is not None and not df.empty and 'close' in df.columns:
+            return float(df['close'].iloc[-1])
+    except Exception:
+        pass
+    raise ValueError(f"Could not fetch current price for {symbol}")
 
 
 def get_price_today(symbol: str = 'VGI'):

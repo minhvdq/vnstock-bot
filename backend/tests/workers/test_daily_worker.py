@@ -1,15 +1,28 @@
 import asyncio
+import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, AsyncMock
 import app.workers.daily_worker as dw
 
 ICT = timezone(timedelta(hours=7))
 
+_next_user_id = 1
+
 
 class _User:
     def __init__(self, chat_id, stocks):
+        global _next_user_id
+        self.id = _next_user_id
+        _next_user_id += 1
         self.chat_id = chat_id
         self.stocks = stocks
+
+
+@pytest.fixture(autouse=True)
+def patch_paper_trading():
+    """Prevent paper trading service from touching the database in unit tests."""
+    with patch('app.workers.daily_worker.paper_trading_service.on_signal', new_callable=AsyncMock):
+        yield
 
 
 def _mock_divergence(prefix=5, suffix=20, kind='bearish'):

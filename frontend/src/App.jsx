@@ -4,6 +4,7 @@ import customStorage from './utils/customStorage'
 import Authentication from './pages/Authentication'
 import Home from './pages/Home'
 import Backtest from './pages/Backtest'
+import PaperTrading from './pages/PaperTrading'
 import Layout from './components/Layout'
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
         <Route element={<Layout curUser={curUser} setCurUser={setCurUser} />}>
           <Route path="/" element={<Home curUser={curUser} />} />
           <Route path="/backtest" element={<Backtest />} />
+          <Route path="/paper-trading" element={<PaperTrading curUser={curUser} />} />
         </Route>
       </Routes>
     </BrowserRouter>

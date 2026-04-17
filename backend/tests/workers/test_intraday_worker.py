@@ -4,8 +4,14 @@ from unittest.mock import patch, AsyncMock
 import app.workers.intraday_worker as iw
 
 
+_next_user_id = 1
+
+
 class _User:
     def __init__(self, chat_id, stocks):
+        global _next_user_id
+        self.id = _next_user_id
+        _next_user_id += 1
         self.chat_id = chat_id
         self.stocks = stocks
 
@@ -29,6 +35,14 @@ def reset_dedup():
     yield
     iw._seen.clear()
     iw._seen_date = ''
+
+
+@pytest.fixture(autouse=True)
+def patch_paper_trading():
+    """Prevent paper trading service from touching the database in unit tests."""
+    with patch('app.workers.intraday_worker.paper_trading_service.on_signal', new_callable=AsyncMock), \
+         patch('app.workers.intraday_worker.paper_trading_service.check_positions', new_callable=AsyncMock):
+        yield
 
 
 # ── signal fires ──────────────────────────────────────────────────────────────
