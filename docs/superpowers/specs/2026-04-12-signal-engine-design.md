@@ -1,13 +1,14 @@
 # Signal Engine Design
-**Date:** 2026-04-12
+**Date:** 2026-04-12  
+**Last updated:** 2026-04-17  
 **Phase:** 2 of 3 (Signal Engine)
-**Stack:** FastAPI / Python backend, vnstock SDK, talib, Telegram Bot API
+**Stack:** FastAPI / Python backend, vnstock SDK (KBS source for futures), talib, Telegram Bot API
 
 ---
 
 ## Overview
 
-Phase 2 wires the Phase 1 algorithm layer to a live signal delivery system. Two background workers run continuously: one checks intraday 1-minute candles every 5 minutes, one fires once daily at 3:05 PM ICT after market close. When a divergence signal fires on a watched stock, all users watching that stock receive a Telegram message with the signal type, price, and timeframe.
+Phase 2 wires the Phase 1 algorithm layer to a live signal delivery system. Two background workers run continuously: one polls 1-minute futures candles every minute, one fires once daily at 3:05 PM ICT after market close. When a signal fires, all users receive a Telegram message and a paper trade is opened automatically.
 
 **Explicit product decision:** signals are informational only. The bot sends BUY and SELL alerts but tracks no position state. A user may receive a second BUY before a SELL — that is acceptable in Phase 2. Position tracking is deferred to Phase 3.
 
@@ -16,11 +17,11 @@ Phase 2 wires the Phase 1 algorithm layer to a live signal delivery system. Two 
 ## Scope
 
 **In scope:**
-- Intraday worker: polls every 5 minutes, checks latest 1-minute candle per symbol
-- Daily worker: fires once at 3:05 PM ICT, checks latest daily candle per symbol
-- Signal service: `build_symbol_map`, `fetch_ohlcv_with_rsi`, `format_signal_message`, `send_signal`
-- Deduplication: intraday uses prefix+suffix pair tracking; daily uses schedule-based (fires once per day naturally)
-- Stock-first fan-out: fetch each symbol once, send to all watching users
+- Intraday worker: polls every 1 minute, scans fixed futures symbols (`VN30F1M`, `VN100F1M`)
+- Daily worker: fires once at 3:05 PM ICT, checks latest daily candle per user-watchlist symbol
+- Signal service: `build_symbol_map`, `fetch_ohlcv_with_rsi` (daily), `fetch_intraday_ohlcv_with_rsi` (futures tick → 1m OHLCV), `format_signal_message`, `send_signal`
+- Deduplication: intraday uses once-per-day per-symbol guard; daily uses schedule-based (fires once per day naturally)
+- Symbol-first fan-out: fetch each symbol once, fan out to all users
 - Rate limiting: 50ms between Telegram sends to stay under API limits
 - Dependency injection on `get_users` in both workers for testability
 - Retire `stock_worker.py`
@@ -60,7 +61,14 @@ backend/tests/
 
 ## Signal Service (`signal_service.py`)
 
-Four functions. No module-level state.
+Five functions. No module-level state.
+
+**Source constants:**
+```python
+_INTRADAY_SOURCES = ['KBS', 'VCI']
+# KBS is required for futures (VN30F1M, VN100F1M) — VCI returns empty for derivatives.
+# VCI works for daily stock OHLCV.
+```
 
 ### `build_symbol_map`
 
@@ -70,7 +78,7 @@ def build_symbol_map(users: list) -> dict[str, list[str]]:
     Returns {symbol: [chat_id, ...]} for all users with a non-empty chat_id.
     Each symbol appears once; its value is all chat_ids watching it.
     Users without chat_id are excluded entirely.
-    Used by both intraday and daily workers.
+    Used by daily worker only.
     """
 ```
 
@@ -79,7 +87,7 @@ def build_symbol_map(users: list) -> dict[str, list[str]]:
 ```python
 def fetch_ohlcv_with_rsi(
     symbol: str,
-    interval: str,       # '1m' for intraday, '1D' for daily
+    interval: str,       # '1D' for daily (only supported interval for history())
     start: str,          # YYYY-MM-DD
     end: str,            # YYYY-MM-DD
 ) -> list[dict] | None:
@@ -89,7 +97,26 @@ def fetch_ohlcv_with_rsi(
     drop NaN rows, return as list[dict] with RSI field.
     Returns None if data is empty or fewer than 2 rows after RSI warmup.
 
-    Both workers use this — consistent data pipeline, easy to mock in tests.
+    Used by daily worker only. vnstock history() only supports 1D/1W/1M intervals.
+    """
+```
+
+### `fetch_intraday_ohlcv_with_rsi`
+
+```python
+def fetch_intraday_ohlcv_with_rsi(symbol: str) -> list[dict] | None:
+    """
+    Fetch today's tick data via Quote(symbol, source='KBS').intraday(page_size=10_000),
+    resample to 1-minute OHLCV bars using pandas resample('1min'),
+    compute RSI, and return list[dict] compatible with generate_signals().
+
+    Why a separate function: vnstock's history() does not support sub-daily intervals.
+    intraday() returns matched-order tick data (columns: time, price, volume, match_type, id).
+    The price column is used for open/high/low/close of each 1-min bar.
+
+    Falls back to VCI if KBS is empty (VCI currently returns empty for futures,
+    but kept as fallback for forward compatibility).
+    Returns None if fewer than 2 bars remain after RSI warmup.
     """
 ```
 
@@ -147,54 +174,56 @@ async def send_signal(
 
 ## Intraday Worker (`intraday_worker.py`)
 
-Polls every 5 minutes. Stock-first fan-out. Dedup via module-level state.
+Polls every 1 minute. Iterates a fixed list of T+0-eligible futures symbols — does **not** use per-user watchlists. All registered users receive paper trades and Telegram alerts.
 
 ```python
 ICT = timezone(timedelta(hours=7))
+MARKET_OPEN_HOUR = 9
+MARKET_CLOSE_HOUR = 15
 
-_seen: set[tuple] = set()   # (symbol, prefix_idx, suffix_idx)
-_seen_date: str = ""         # YYYY-MM-DD, cleared when date changes
+# Vietnam T+0-eligible instruments (index futures, front month)
+INTRADAY_SYMBOLS = ['VN30F1M', 'VN100F1M']
+
+# Once-per-day guard: {strategy_name: {symbol: date_str}}
+_intraday_fired: dict[str, dict[str, str]] = {}
+
+async def _poll_once(get_users=get_all_users):
+    users = get_users()
+    all_user_ids = [u.id for u in users]
+    all_chat_ids = [u.chat_id for u in users if u.chat_id]
+    intraday_strategies = {k: v for k, v in STRATEGIES.items() if v.timeframe == "intraday"}
+
+    for symbol in INTRADAY_SYMBOLS:
+        records_list = fetch_intraday_ohlcv_with_rsi(symbol)
+        if not records_list:
+            continue
+        df = pd.DataFrame(records_list)
+
+        for strategy_name, StrategyClass in intraday_strategies.items():
+            # once-per-day dedup
+            fired_today = _intraday_fired.setdefault(strategy_name, {})
+            if fired_today.get(symbol) == today:
+                continue
+
+            strategy = StrategyClass()
+            df_signals = strategy.generate_signals(df.copy())
+            last_signal = int(df_signals.iloc[-1].get('signal', 0))
+            if last_signal == 1:
+                fired_today[symbol] = today
+                await send_signal(all_chat_ids, symbol, 'bullish', 'Intraday', price, signal_time, StrategyClass.display_name)
+                for user_id in all_user_ids:
+                    await paper_trading_service.on_signal(user_id=user_id, symbol=symbol, entry_price=price, strategy_name=strategy_name)
+
+    if is_market_hours:
+        await paper_trading_service.check_positions()
 
 async def intraday_worker(get_users=get_all_users):
     while True:
-        try:
-            # 1. Reset dedup on new day
-            today = date.today().isoformat()
-            if today != _seen_date:
-                _seen.clear()
-                _seen_date = today
-
-            # 2. Build symbol map
-            users = get_users()
-            symbol_to_chat_ids = build_symbol_map(users)
-
-            # 3. Per symbol: fetch 1m candles, check divergence, send
-            for symbol, chat_ids in symbol_to_chat_ids.items():
-                try:
-                    records_list = fetch_ohlcv_with_rsi(symbol, '1m', today, today)
-                    if not records_list:
-                        continue
-                    divergence = _has_divergence_at(records_list, len(records_list) - 1)
-                    if divergence is None:
-                        continue
-                    key = (symbol, divergence['prefixIndex'], divergence['suffixIndex'])
-                    if key in _seen:
-                        continue
-                    _seen.add(key)
-                    price = records_list[-1]['close']
-                    signal_time = datetime.now(ICT).strftime('%H:%M')
-                    await send_signal(chat_ids, symbol, divergence['type'], 'Intraday', price, signal_time)
-                except Exception as e:
-                    print(f"Intraday worker error for {symbol}: {e}")
-
-        except (OperationalError, DisconnectionError):
-            await asyncio.sleep(10)
-            continue
-        except Exception as e:
-            print(f"Intraday worker error: {e}")
-
-        await asyncio.sleep(300)  # 5 minutes
+        await _poll_once(get_users)
+        await asyncio.sleep(60)  # 1 minute
 ```
+
+**Why futures only:** Vietnam's T+0 rule does not apply to individual stocks (T+2.5 settlement). VN30 and VN100 index futures settle intraday and are legally tradeable same-day. Individual stocks have been removed from the intraday worker entirely.
 
 ---
 

@@ -1,6 +1,7 @@
 # Trading Strategies Expansion — Design Spec
 **Date:** 2026-04-16  
-**Status:** Approved
+**Last updated:** 2026-04-17  
+**Status:** Implemented
 
 ---
 
@@ -136,28 +137,36 @@ exit_rules = {
 
 ---
 
-## Strategy 3: Volume Breakout (5-min Intraday)
+## Strategy 3: Volume Breakout (1-min Futures Intraday)
 
 **File:** `backend/app/algorithms/volume_breakout.py`  
+**Display name:** `"Volume Breakout (Futures)"`  
 **Timeframe:** intraday  
-**Expected signals:** 1–3/day across watchlist  
-**Hold period:** intraday only (T+0 same-day exit)  
-**Risk note:** Lower reliability on less-liquid VN mid-caps. Keep position sizing conservative (5% of portfolio vs 10% for daily strategies).
+**Symbols:** `VN30F1M`, `VN100F1M` (VN30 and VN100 index futures, front month)  
+**Expected signals:** 0–2/day per futures symbol  
+**Hold period:** intraday only (T+0 same-day exit — futures are legally T+0 in Vietnam)  
+**Data source:** `Quote(symbol, source='KBS').intraday(page_size=10_000)` → resampled to 1-min OHLCV bars
+
+**Why futures, not stocks:** Vietnam individual stocks are T+2.5 settlement — same-day buy-and-sell is not permitted. VN30 and VN100 index futures are T+0 and the only intraday-legal instruments available. Individual stocks have been removed from the intraday worker.
+
+**Why KBS source:** `VCI` returns empty for derivatives symbols. `KBS` is the only vnstock source that provides tick data for VN30F/VN100F. `page_size=10_000` is required — the default 100 ticks covers only ~2 minutes, insufficient for RSI warmup.
 
 ### Parameters
 | Param | Default | Description |
 |---|---|---|
-| `lookback` | 20 | Rolling high lookback (5-min bars) |
+| `lookback` | 20 | Rolling high lookback (1-min bars) |
 | `vol_multiplier` | 1.5 | Volume confirmation multiplier |
 | `vol_window` | 20 | Volume average window |
 
 ### Signal Logic
-**Buy (signal = 1):** All conditions on same 5-min bar:
+**Buy (signal = 1):** All conditions on same 1-min bar:
 1. `close > max(close, lookback=20)` — price breaks recent 20-bar high
 2. `volume > 1.5 × avg(volume, 20)` — volume spike confirms breakout
-3. Only fires **once per stock per calendar day** (flag in worker, reset at midnight)
+3. Only fires **once per symbol per calendar day** (flag in worker, reset at midnight)
 
 **No sell signal** — exits handled entirely by `exit_rules`.
+
+**RSI warmup note:** First valid signal possible ~15 minutes after session open (14 bars for RSI + 20 bars for lookback). Polls before that will return data but produce no signal.
 
 ### Exit Rules
 ```python
@@ -178,11 +187,13 @@ In `check_positions()`, if `trade.strategy_name == "volume_breakout"` and `exit_
 
 ## Data Requirements
 
-| Strategy | Data source | Fetch method |
-|---|---|---|
-| EMA + MACD | Daily OHLCV | existing `daily_worker` fetch |
-| Donchian Breakout | Daily OHLCV | existing `daily_worker` fetch |
-| Volume Breakout | 5-min OHLCV | `vnstock` intraday — already used in `intraday_worker` |
+| Strategy | Data source | Fetch method | vnstock source |
+|---|---|---|---|
+| EMA + MACD | Daily OHLCV | `fetch_ohlcv_with_rsi(symbol, '1D', start, end)` | VCI |
+| Donchian Breakout | Daily OHLCV | `fetch_ohlcv_with_rsi(symbol, '1D', start, end)` | VCI |
+| Volume Breakout | 1-min bars from tick data | `fetch_intraday_ohlcv_with_rsi(symbol)` | KBS (VCI fallback) |
+
+**Note:** `vnstock.Quote.history()` only supports daily/weekly/monthly intervals. Sub-daily intervals require `Quote.intraday()` which returns tick data that must be resampled. The `fetch_intraday_ohlcv_with_rsi` function handles this resampling and RSI computation.
 
 ---
 
@@ -199,7 +210,7 @@ In `check_positions()`, if `trade.strategy_name == "volume_breakout"` and `exit_
 | `backend/app/main.py` | ALTER TABLE migration on startup |
 | `backend/app/services/paper_trading_service.py` | Pass `strategy_name` on `on_signal()`; read `exit_rules` in `check_positions()` |
 | `backend/app/workers/daily_worker.py` | Filter strategies by `timeframe == "daily"` |
-| `backend/app/workers/intraday_worker.py` | Filter strategies by `timeframe == "intraday"`; add once-per-day guard |
+| `backend/app/workers/intraday_worker.py` | Replaced watchlist iteration with fixed `INTRADAY_SYMBOLS = ['VN30F1M', 'VN100F1M']`; all users receive signals; poll interval changed from 300s → 60s; uses `fetch_intraday_ohlcv_with_rsi` |
 
 ---
 

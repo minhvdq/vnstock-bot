@@ -6,7 +6,7 @@ const STRATEGY_OPTIONS = [
   { value: 'rsi_divergence',    label: 'RSI Divergence' },
   { value: 'ema_macd',          label: 'EMA + MACD' },
   { value: 'donchian_breakout', label: 'Donchian Breakout' },
-  { value: 'volume_breakout',   label: 'Volume Breakout (Intraday 5-min)' },
+  { value: 'volume_breakout',   label: 'Volume Breakout (Futures 1-min) — live only' },
 ]
 
 const TRADE_COLUMNS = [
