@@ -24,37 +24,41 @@ const COLUMNS = [
       const m = strategyMeta[v]
       return <Tag color={m?.color ?? 'default'}>{m?.label ?? v}</Tag>
     },
-    filters: STRATEGIES.map(s => ({ text: s.label, value: s.value })),
-    onFilter: (value, record) => record.strategy_name === value,
   },
   {
     title: 'P&L %', dataIndex: 'pnl_pct', key: 'pnl_pct', width: 90,
-    sorter: (a, b) => a.pnl_pct - b.pnl_pct,
+    sorter: (a, b) => (a.pnl_pct ?? 0) - (b.pnl_pct ?? 0),
     defaultSortOrder: 'descend',
-    render: v => (
-      <span style={{ color: v >= 0 ? '#52c41a' : '#ff4d4f', fontWeight: 600 }}>
-        {v >= 0 ? '+' : ''}{v.toFixed(2)}%
-      </span>
-    ),
+    render: v => {
+      const n = v ?? 0
+      return (
+        <span style={{ color: n >= 0 ? '#52c41a' : '#ff4d4f', fontWeight: 600 }}>
+          {n >= 0 ? '+' : ''}{n.toFixed(2)}%
+        </span>
+      )
+    },
   },
   {
     title: 'P&L (VND)', dataIndex: 'pnl', key: 'pnl', width: 130,
-    sorter: (a, b) => a.pnl - b.pnl,
-    render: v => (
-      <span style={{ color: v >= 0 ? '#52c41a' : '#ff4d4f' }}>
-        {v >= 0 ? '+' : ''}{v.toLocaleString()}
-      </span>
-    ),
+    sorter: (a, b) => (a.pnl ?? 0) - (b.pnl ?? 0),
+    render: v => {
+      const n = v ?? 0
+      return (
+        <span style={{ color: n >= 0 ? '#52c41a' : '#ff4d4f' }}>
+          {n >= 0 ? '+' : ''}{n.toLocaleString()}
+        </span>
+      )
+    },
   },
   {
     title: 'Win Rate', dataIndex: 'win_rate', key: 'win_rate', width: 90,
-    sorter: (a, b) => a.win_rate - b.win_rate,
-    render: v => `${v.toFixed(1)}%`,
+    sorter: (a, b) => (a.win_rate ?? 0) - (b.win_rate ?? 0),
+    render: v => `${(v ?? 0).toFixed(1)}%`,
   },
   {
     title: 'Max DD', dataIndex: 'max_drawdown', key: 'max_drawdown', width: 90,
-    sorter: (a, b) => a.max_drawdown - b.max_drawdown,
-    render: v => <span style={{ color: '#ff4d4f' }}>{v.toFixed(2)}%</span>,
+    sorter: (a, b) => (a.max_drawdown ?? 0) - (b.max_drawdown ?? 0),
+    render: v => <span style={{ color: '#ff4d4f' }}>{(v ?? 0).toFixed(2)}%</span>,
   },
   { title: 'Trades', dataIndex: 'total_trades', key: 'total_trades', width: 70 },
   {
