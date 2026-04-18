@@ -102,7 +102,13 @@ export default function BatchBacktest() {
       })
       .catch(() => {})
     getBatchStatus()
-      .then(s => { if (s.status === 'running') startPolling(start, end) })
+      .then(s => {
+        if (s.status === 'running') {
+          setLoading(true)
+          setJobStatus(s)
+          startPolling(start, end)
+        }
+      })
       .catch(() => {})
   }, [period])
 

@@ -13,14 +13,20 @@ _job: dict = {'status': 'idle', 'start': None, 'end': None, 'ok': 0, 'failed': 0
 _lock = threading.Lock()
 
 
+def _on_progress(completed: int, total: int, ok: int, failed: int) -> None:
+    with _lock:
+        _job.update({'completed': completed, 'total': total, 'ok': ok, 'failed': failed})
+
+
 def _run_background(start: str, end: str) -> None:
     global _job
     try:
-        results = run_batch(start=start, end=end)
+        results = run_batch(start=start, end=end, progress_cb=_on_progress)
         ok = sum(1 for r in results if not r['error'])
         failed = sum(1 for r in results if r['error'])
         with _lock:
-            _job.update({'status': 'done', 'ok': ok, 'failed': failed, 'total': len(results)})
+            _job.update({'status': 'done', 'ok': ok, 'failed': failed,
+                         'completed': len(results), 'total': len(results)})
     except Exception as e:
         with _lock:
             _job.update({'status': 'error', 'error': str(e)})

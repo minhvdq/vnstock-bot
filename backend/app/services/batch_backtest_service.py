@@ -35,7 +35,10 @@ _rate_lock = threading.Lock()
 _last_request_time: float = 0.0
 
 
-def _throttled_run_one(symbol: str, strategy: str, start: str, end: str) -> dict:
+def _throttled_run_one(
+    symbol: str, strategy: str, start: str, end: str,
+    index: int = 0, total: int = 0,
+) -> dict:
     """Rate-limited wrapper: enforces minimum gap between requests."""
     global _last_request_time
     with _rate_lock:
@@ -45,9 +48,17 @@ def _throttled_run_one(symbol: str, strategy: str, start: str, end: str) -> dict
             time.sleep(wait)
         _last_request_time = time.monotonic()
 
+    tag = f'[{index}/{total}]' if total else ''
+    t0 = time.monotonic()
+    print(f'[batch] {tag} START {symbol}/{strategy}')
+
     try:
         result = run_backtest(symbol=symbol, strategy_name=strategy,
                               start_date=start, end_date=end)
+        elapsed = time.monotonic() - t0
+        print(f'[batch] {tag} OK    {symbol}/{strategy} '
+              f'pnl={result.pnl_pct:+.1f}% trades={result.total_trades} '
+              f'win={result.win_rate:.0f}% ({elapsed:.1f}s)')
         return {
             'symbol': symbol,
             'strategy_name': strategy,
@@ -63,8 +74,9 @@ def _throttled_run_one(symbol: str, strategy: str, start: str, end: str) -> dict
             'error': None,
         }
     except BaseException as e:
-        # Catch BaseException to handle vnstock's SystemExit on rate limit
+        elapsed = time.monotonic() - t0
         error_msg = str(e)[:200] if str(e) else type(e).__name__
+        print(f'[batch] {tag} FAIL  {symbol}/{strategy} ({elapsed:.1f}s): {error_msg}')
         return {
             'symbol': symbol,
             'strategy_name': strategy,
@@ -86,25 +98,42 @@ def run_batch(
     strategies: list[str] = DEFAULT_STRATEGIES,
     start: str = '2024-01-01',
     end: str = '2025-12-31',
+    progress_cb=None,
 ) -> list[dict]:
     """
     Run backtest for every (symbol, strategy) pair sequentially with rate limiting.
-    Guest plan: 20 req/min → 3.5s delay → ~3.5 min for 60 requests.
-    Free community key (60 req/min): set DELAY_SECONDS=1.0 → ~1 min.
-    Upserts results to DB and returns the full list.
+    Community key (60 req/min): 1.1s delay → ~70s for 60 requests.
+    Guest (no key, 20 req/min): 3.5s delay → ~3.5 min for 60 requests.
     """
     tasks = [(s, st) for s in symbols for st in strategies]
+    total = len(tasks)
     results = []
 
-    # Single worker: rate limiter serialises requests; parallelism would just
-    # cause threads to pile up waiting on the lock anyway.
+    tier = 'community' if _api_key else 'guest'
+    print(f'[batch] START {total} tasks ({len(symbols)} symbols × {len(strategies)} strategies) '
+          f'period={start}→{end} tier={tier} delay={DELAY_SECONDS}s')
+
+    batch_t0 = time.monotonic()
+
+    # Single worker: rate limiter serialises requests anyway.
     with ThreadPoolExecutor(max_workers=1) as pool:
-        futures = {pool.submit(_throttled_run_one, sym, strat, start, end): (sym, strat)
-                   for sym, strat in tasks}
+        futures = {
+            pool.submit(_throttled_run_one, sym, strat, start, end, i + 1, total): (sym, strat)
+            for i, (sym, strat) in enumerate(tasks)
+        }
         for future in as_completed(futures):
             results.append(future.result())
+            ok_so_far = sum(1 for r in results if not r['error'])
+            if progress_cb:
+                progress_cb(len(results), total, ok_so_far, len(results) - ok_so_far)
+
+    ok = sum(1 for r in results if not r['error'])
+    failed = total - ok
+    elapsed = time.monotonic() - batch_t0
+    print(f'[batch] DONE  {ok}/{total} OK, {failed} failed in {elapsed:.0f}s — persisting to DB')
 
     _upsert_results(results)
+    print(f'[batch] DB upsert complete')
     return results
 
 
