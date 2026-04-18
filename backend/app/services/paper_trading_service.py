@@ -10,8 +10,8 @@ from app.utils.telegram import send_message
 
 ICT = timezone(timedelta(hours=7))
 STARTING_BALANCE = 100_000_000  # VND
-POSITION_SIZE_PCT = 0.10         # 10% of portfolio per trade — daily strategies
-INTRADAY_POSITION_SIZE_PCT = 0.05  # 5% — intraday strategies (tighter risk)
+POSITION_SIZE_PCT = 0.10         # fallback: 10% of portfolio per trade — daily strategies
+INTRADAY_POSITION_SIZE_PCT = 0.05  # fallback: 5% — intraday strategies (tighter risk)
 MAX_POSITIONS = 10
 # Legacy defaults (used when strategy not found in STRATEGIES registry)
 STOP_LOSS_PCT = 0.93
@@ -66,7 +66,8 @@ async def on_signal(
     if strategy_cls:
         sl_pct = 1 + strategy_cls.exit_rules["stop_loss_pct"]
         tp_pct = 1 + strategy_cls.exit_rules["take_profit_pct"]
-        pos_size_pct = INTRADAY_POSITION_SIZE_PCT if strategy_cls.timeframe == "intraday" else POSITION_SIZE_PCT
+        from app.services.position_sizing import get_strategy_position_pct
+        pos_size_pct = get_strategy_position_pct(strategy_name, strategy_cls.timeframe)
     else:
         sl_pct = STOP_LOSS_PCT
         tp_pct = TAKE_PROFIT_PCT

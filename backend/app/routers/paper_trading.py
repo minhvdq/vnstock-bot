@@ -5,6 +5,7 @@ from app.services import paper_trading_service
 from app.services.stock_api_service import get_current_price
 from app.db.database import SessionLocal
 from app.models.paper_trading import PaperTrade, TradeStatus
+from app.services.weekly_report_service import build_weekly_report, format_weekly_report
 
 router = APIRouter(
     prefix="/paper-trading",
@@ -110,6 +111,14 @@ def get_trades(
         }
     finally:
         db.close()
+
+
+@router.get("/report")
+async def get_weekly_report(request: Request, days: int = Query(default=7, ge=1, le=30)):
+    """Return (and optionally send) the weekly P&L report for the authenticated user."""
+    user = request.state.user
+    report = build_weekly_report(user.id, days=days)
+    return {'report': report, 'formatted': format_weekly_report(report)}
 
 
 @router.delete("/positions/{trade_id}")

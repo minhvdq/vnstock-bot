@@ -1,6 +1,7 @@
 import asyncio
 from app.workers.intraday_worker import intraday_worker
 from app.workers.daily_worker import daily_worker
+from app.workers.weekly_report_worker import weekly_report_worker
 from fastapi import FastAPI
 from app.routers import stock, company, user, auth, backtest, paper_trading, batch_backtest
 from app.services.user_service import define_user_chatid
@@ -45,6 +46,7 @@ async def startup_event():
             conn.commit()
         asyncio.create_task(intraday_worker())
         asyncio.create_task(daily_worker())
+        asyncio.create_task(weekly_report_worker())
         print("Workers started successfully")
     except Exception as e:
         print(f"Error starting workers: {e}")
